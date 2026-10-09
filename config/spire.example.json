@@ -1,0 +1,23 @@
+{
+  "environment": "production",
+  "provider": "spire",
+  "trust_domain": "prod.agentguard.example.net",
+  "socket_path": "unix:///run/spire/sockets/agent.sock",
+  "federated_trust_domains": [],
+  "workload_selectors": ["k8s:ns:agents", "k8s:sa:agentguard-runtime"],
+  "connect_timeout_seconds": 5.0,
+  "rpc_timeout_seconds": 10.0,
+  "retry_max_attempts": 3,
+  "retry_initial_backoff_seconds": 0.2,
+  "retry_max_backoff_seconds": 5.0,
+  "rotation_threshold_fraction": 0.5,
+  "rotation_min_remaining_seconds": 60,
+  "refresh_interval_seconds": 30.0,
+  "clock_skew_seconds": 30,
+  "bundle_max_age_seconds": 3600,
+  "jwt_allowed_algorithms": ["ES256", "ES384", "RS256", "PS256"],
+  "jwt_max_ttl_seconds": 3600,
+  "jwt_single_use": false,
+  "require_instance_identity": true,
+  "tls_min_version": "TLSv1.3"
+}

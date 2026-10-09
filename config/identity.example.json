@@ -1,0 +1,16 @@
+{
+  "trust_domain": "agentguard.example.com",
+  "credential_ttl_seconds": 900,
+  "min_credential_ttl_seconds": 30,
+  "max_credential_ttl_seconds": 3600,
+  "clock_skew_seconds": 30,
+  "proof_max_age_seconds": 60,
+  "require_proof": true,
+  "replay_cache_max_entries": 500000,
+  "max_token_bytes": 8192,
+  "max_sub_agent_depth": 5,
+  "require_spawn_capability": true,
+  "rotation_grace_seconds": 60,
+  "issuer_rotation_overlap_seconds": 7200,
+  "log_to_python_logging": true
+}
