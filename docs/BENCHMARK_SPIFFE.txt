@@ -1,0 +1,12 @@
+python 3.12.3 on x86_64 / Linux (dev transport)
+X.509-SVID fetch (client.fetch)          n=   500 mean=   2085.8us p50=   1997.9us p99=   3289.1us ~     479 ops/s
+JWT-SVID fetch (client.fetch)            n=   500 mean=    278.9us p50=    253.1us p99=    559.4us ~    3586 ops/s
+issue() (cached X509 source)             n=  2000 mean=      4.0us p50=      3.8us p99=      9.3us ~  250999 ops/s
+X.509 chain validation (raw)             n=  2000 mean=    325.5us p50=    319.7us p99=    400.6us ~    3072 ops/s
+verify_x509 (chain + registry authz)     n=  2000 mean=    360.2us p50=    352.0us p99=    476.1us ~    2776 ops/s
+verify JWT-SVID (full, no replay)        n=  2000 mean=    171.7us p50=    166.3us p99=    228.8us ~    5824 ops/s
+credential refresh (bundles x509+jwt)    n=   500 mean=    234.4us p50=    221.7us p99=    377.7us ~    4267 ops/s
+forced X.509 rotation                    n=   300 mean=   1925.0us p50=   1873.4us p99=   2339.8us ~     519 ops/s
+concurrent verify_x509 threads= 1   n=4000 total=1.776s ~    2252 ops/s (GIL-bound)
+concurrent verify_x509 threads= 4   n=4000 total=1.792s ~    2232 ops/s (GIL-bound)
+concurrent verify_x509 threads=16   n=4000 total=1.986s ~    2014 ops/s (GIL-bound)

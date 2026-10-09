@@ -1,0 +1,25 @@
+# Real SPIRE server + agent for AgentGuard integration tests. TEST ONLY (insecure_bootstrap, join_token).
+# Not run in the authoring sandbox (no Docker there): run it on a Docker host with ./run.sh
+services:
+  spire-server:
+    image: ghcr.io/spiffe/spire-server:1.9.6
+    command: ["-config", "/etc/spire/server.conf"]
+    volumes:
+      - ./conf/server.conf:/etc/spire/server.conf:ro
+    healthcheck:
+      test: ["CMD", "/opt/spire/bin/spire-server", "healthcheck"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  spire-agent:
+    image: ghcr.io/spiffe/spire-agent:1.9.6
+    depends_on:
+      spire-server:
+        condition: service_healthy
+    pid: host            # lets the unix attestor resolve the uid of the HOST test process
+    user: root
+    command: ["-config", "/etc/spire/agent.conf", "-joinToken", "${JOIN_TOKEN:?run via run.sh}"]
+    volumes:
+      - ./conf/agent.conf:/etc/spire/agent.conf:ro
+      - ./.run/sockets:/run/spire/sockets

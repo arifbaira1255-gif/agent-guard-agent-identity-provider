@@ -1,0 +1,7 @@
+python 3.12.3 on x86_64 / Linux (single thread, in-memory stores)
+raw Ed25519 signature verify       n=  5000  mean=   107.6us  p50=   107.7us  p99=   131.1us  ~     9292 ops/s
+agent registration                 n=  1000  mean=    83.2us  p50=    80.6us  p99=   121.2us  ~    12016 ops/s
+credential issuance (agent-held)   n=  1000  mean=   421.0us  p50=   421.5us  p99=   503.1us  ~     2375 ops/s
+verify (no proof)                  n=  3000  mean=   159.8us  p50=   157.1us  p99=   200.5us  ~     6258 ops/s
+verify (server-side only, w/ proof) n=  3000  mean=   288.3us  p50=   286.4us  p99=   356.8us  ~     3468 ops/s
+revocation lookup (revoked id)     n= 20000  mean=     0.3us  p50=     0.3us  p99=     0.4us  ~  3500889 ops/s

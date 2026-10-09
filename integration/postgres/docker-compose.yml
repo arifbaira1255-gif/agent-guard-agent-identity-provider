@@ -1,0 +1,16 @@
+# Local/CI PostgreSQL for AgentGuard. DEVELOPMENT ONLY credentials (override via .env). No TLS here.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${AGENTGUARD_PG_USER:-agentguard}
+      POSTGRES_PASSWORD: ${AGENTGUARD_PG_PASSWORD:?set AGENTGUARD_PG_PASSWORD in .env}
+      POSTGRES_DB: ${AGENTGUARD_PG_DB:-agentguard}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["agentguard-pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      retries: 30
+volumes:
+  agentguard-pg:
