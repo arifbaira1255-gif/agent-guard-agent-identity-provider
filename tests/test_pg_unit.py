@@ -216,26 +216,26 @@ class DbBehaviour(unittest.TestCase):
         with self.assertRaises(SchemaMismatchError):
             migrate.verify_schema(missing)
         # DB newer than code => not ready
-        mig = migrate.load_migrations()[0]
+        migs = migrate.load_migrations()
+        exp = migrate.expected_version()
+        rows = [{"version": m.version, "name": m.name, "checksum": m.checksum} for m in migs]
         ahead = Database(cfg(), pool=FakePool({
             "to_regclass": FakeCursor({"t": "x"}),
-            "FROM schema_migrations": FakeCursor(None, [
-                {"version": 1, "name": mig.name, "checksum": mig.checksum},
-                {"version": 2, "name": "future", "checksum": "00"}])}), sleep=lambda s: None)
+            "FROM schema_migrations": FakeCursor(None, rows + [
+                {"version": exp + 1, "name": "future", "checksum": "00"}])}), sleep=lambda s: None)
         with self.assertRaises(SchemaMismatchError):
             migrate.verify_schema(ahead)
         # tampered checksum => not ready
         bad = Database(cfg(), pool=FakePool({
             "to_regclass": FakeCursor({"t": "x"}),
-            "FROM schema_migrations": FakeCursor(None, [{"version": 1, "name": mig.name, "checksum": "bad"}])}),
+            "FROM schema_migrations": FakeCursor(None, [dict(rows[0], checksum="bad")])}),
             sleep=lambda s: None)
         with self.assertRaises(SchemaMismatchError):
             migrate.verify_schema(bad)
         good = Database(cfg(), pool=FakePool({
             "to_regclass": FakeCursor({"t": "x"}),
-            "FROM schema_migrations": FakeCursor(None, [{"version": 1, "name": mig.name,
-                                                         "checksum": mig.checksum}])}), sleep=lambda s: None)
-        self.assertEqual(migrate.verify_schema(good), 1)
+            "FROM schema_migrations": FakeCursor(None, rows)}), sleep=lambda s: None)
+        self.assertEqual(migrate.verify_schema(good), exp)
         self.assertTrue(good.readiness()["ready"])
 
 
@@ -332,6 +332,122 @@ class FailClosedVerification(unittest.TestCase):
             raise StorageUnavailableError("database temporarily unavailable")
         svc.revocations.get = down
         self.assertFalse(svc.verify_credential(c.token, require_proof=False).valid)
+
+
+
+
+
+class WriteOrderForRelationalStores(unittest.TestCase):
+    """Regression (found by the first real-PostgreSQL run): issuer_certificates.org_id has a FOREIGN KEY to
+    organizations, so the organization must be persisted BEFORE its issuer certificate."""
+
+    def _svc(self):
+        from agent_identity.core.clock import FixedClock
+        from agent_identity.observability.logging import SecurityLogger
+        from agent_identity.storage.memory import MemoryAgentRegistry, MemoryTrustStore
+        agents = MemoryAgentRegistry()
+
+        class FkTrust(MemoryTrustStore):
+            def put_issuer_cert(self, cert):
+                if agents.get_org(cert.org_id) is None:          # what PostgreSQL's FK enforces
+                    raise ConflictError("referenced record missing or tenant mismatch")
+                super().put_issuer_cert(cert)
+        return IdentityService(IdentityConfig(log_to_python_logging=False), clock=FixedClock(),
+                               logger=SecurityLogger(use_python_logging=False), agents=agents, trust=FkTrust())
+
+    def test_register_organization_persists_org_before_issuer_cert(self):
+        svc = self._svc()
+        out = svc.register_organization("acme", "Acme")
+        org = svc.agents.get_org("acme")
+        self.assertIsNotNone(svc.trust.get_issuer_cert(org.active_issuer_key_id))
+        self.assertTrue(out)
+
+    def test_whole_lifecycle_works_with_fk_ordering_enforced(self):
+        svc = self._svc()
+        svc.register_organization("acme", "Acme")
+        a = svc.register_agent("acme", "bot", "t", "o@x.com", "d", ["agent:spawn"], "production", {})
+        i = svc.create_agent_instance(a["agent_id"])
+        c = svc.issue_credential(a["agent_id"], i["instance_id"])
+        self.assertTrue(svc.verify_credential(c.token, require_proof=False).valid)
+        svc.rotate_issuer_key("acme")
+        self.assertTrue(svc.verify_credential(c.token, require_proof=False).valid)   # old key still in overlap
+
+    def test_cert_failure_after_org_write_fails_closed(self):
+        svc = self._svc()
+
+        def boom(cert):
+            raise StorageError("db error")
+        svc.trust.put_issuer_cert = boom
+        with self.assertRaises(StorageError):
+            svc.register_organization("acme", "Acme")
+        with self.assertRaises(Exception):                       # org exists but has no certificate:
+            a = svc.register_agent("acme", "bot", "t", "o@x.com", "d", ["x:read"], "production", {})
+            i = svc.create_agent_instance(a["agent_id"])
+            c = svc.issue_credential(a["agent_id"], i["instance_id"])
+            r = svc.verify_credential(c.token, require_proof=False)
+            if not r.valid:
+                raise RuntimeError("denied")                     # denial is the acceptable outcome
+
+
+
+class ImmutabilityAndRepair(unittest.TestCase):
+    """Found by the real-PostgreSQL run: re-parenting an agent was silently ignored instead of rejected."""
+
+    def test_reparent_org_move_and_reactivation_are_rejected_not_ignored(self):
+        from dataclasses import replace
+        from agent_identity.core.models import Status
+        from tests.helpers import make_agent, make_service
+        svc, _ = make_service()
+        a, _i, _c = make_agent(svc)
+        other, _i2, _c2 = make_agent(svc, name="other-agent")
+        rec = svc.agents.get_agent(a["agent_id"])
+        for bad in (replace(rec, org_id="globex"),
+                    replace(rec, parent_agent_id=other["agent_id"], lineage=(other["agent_id"],)),
+                    replace(rec, lineage=("x",)), replace(rec, created_at=rec.created_at + 1),
+                    replace(rec, created_by="someone-else")):
+            with self.assertRaises(ConflictError):
+                svc.agents.put_agent(bad)
+        self.assertEqual(svc.agents.get_agent(a["agent_id"]), rec)            # nothing changed
+        svc.agents.put_agent(replace(rec, status=Status.TERMINATED))
+        with self.assertRaises(ConflictError):
+            svc.agents.put_agent(replace(rec, status=Status.ACTIVE))
+
+    def test_postgres_upsert_guard_covers_every_immutable_column(self):
+        src = (PGDIR / "repos.py").read_text()
+        i = src.index("INSERT INTO agents")
+        guard = src[i:src.index("self.db.run(\"put_agent\"", i)]
+        for col in ("org_id", "parent_agent_id", "lineage", "created_at", "created_by"):
+            self.assertIn(f"agents.{col}", guard)
+
+    def test_repair_organization_fixes_a_stuck_org_and_refuses_healthy_ones(self):
+        from agent_identity.core.clock import FixedClock
+        from agent_identity.observability.logging import SecurityLogger
+        svc = WriteOrderForRelationalStores()._svc()
+        real = svc.trust.put_issuer_cert
+        calls = []
+
+        def flaky(cert):
+            calls.append(1)
+            if len(calls) == 1:
+                raise StorageError("db error")                  # outage between the two writes
+            real(cert)
+        svc.trust.put_issuer_cert = flaky
+        with self.assertRaises(StorageError):
+            svc.register_organization("acme", "Acme")
+        with self.assertRaises(ConflictError):
+            svc.register_organization("acme", "Acme")           # cannot re-register
+        a = svc.register_agent("acme", "bot", "t", "o@x.com", "d", ["x:read"], "production", {})
+        i = svc.create_agent_instance(a["agent_id"])
+        with self.assertRaises(Exception):
+            svc.issue_credential(a["agent_id"], i["instance_id"])      # stuck org fails closed
+        svc.repair_organization("acme")
+        c = svc.issue_credential(a["agent_id"], i["instance_id"])
+        self.assertTrue(svc.verify_credential(c.token, require_proof=False).valid)
+        with self.assertRaises(ConflictError):
+            svc.repair_organization("acme")                       # healthy org: refused
+        from agent_identity.core.errors import NotFoundError
+        with self.assertRaises(NotFoundError):
+            svc.repair_organization("nope")
 
 
 if __name__ == "__main__":
