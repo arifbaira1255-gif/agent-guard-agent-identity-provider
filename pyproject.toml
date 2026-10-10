@@ -11,7 +11,11 @@ dependencies = ["cryptography>=42", "PyJWT>=2.7"]
 
 [project.optional-dependencies]
 spire = ["grpcio>=1.60"]
+redis = ["redis>=5.0"]
 postgres = ["psycopg[binary]>=3.1", "psycopg-pool>=3.2"]
+# Step 5 KMS/HSM: the PKCS#11 (HSM) provider needs python-pkcs11; the HashiCorp Vault
+# provider deliberately uses only the standard library (plain HTTP) so it adds no dep.
+kms = ["python-pkcs11>=0.9"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

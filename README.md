@@ -126,4 +126,30 @@ See `config/identity.example.json` (`IdentityConfig.from_file`). Docs: `docs/THR
 ## SPIFFE/SPIRE integration
 Implemented in `src/agent_identity/spiffe/`; see `docs/SPIFFE.md`. The old stub was replaced by a real
 Workload API client (X.509-SVID, JWT-SVID, trust bundles, rotation). Status: WIP, not production-ready:
-the real-SPIRE integration test (`integration/spire/run.sh`) and the gRPC transport have not yet been run.
+the real-SPIRE integration test (`integration/spire/run.sh`) passed on a Docker test host; production node attestation and federation are unverified.
+
+## Redis distributed security state
+Implemented in `src/agent_identity/state/`; see `docs/REDIS.md`. Unit-tested and covered by real
+Redis integration tests (`AGENTGUARD_TEST_REDIS_HOST=...`) — currently passing.
+
+## KMS/HSM key management (Step 5)
+Implemented in `src/agent_identity/kms/`; see `docs/KMS_HSM.md`. Provider-independent key
+management: `DefaultKeyManager` **implements the existing `KeyStore` ABC**, so it drops into
+`IdentityService`/`Verifier` unchanged. Providers: `local` (development only, software Ed25519
+encrypted at rest), `vault` (HashiCorp Vault Transit, **non-exportable** keys), `pkcs11`
+(PKCS#11 `CKM_EDDSA` HSM). Lifecycle: pending → active → rotating → retiring → retired (+
+terminal revoked); rotation keeps both keys verifying through an overlap window; keys are never
+destroyed while a live credential may still depend on them; production refuses to fall back to
+the development provider. Key material is **never** stored in PostgreSQL, Redis or logs.
+
+```python
+from agent_identity.kms import KmsConfig, build_key_manager
+from agent_identity.kms.trust_bridge import managed_storage_kwargs
+
+manager = build_key_manager(KmsConfig.from_env(), db=storage.db)
+svc = IdentityService(cfg, **managed_storage_kwargs(storage, manager))   # keystore=KMS, trust=gated
+```
+
+Provider integrations are tested against **real** infrastructure: a Vault container with the
+`transit` engine, and a SoftHSM2 PKCS#11 token (plus mocked transports for error paths). AWS KMS
+and hardware HSMs are **not** implemented/verified — see the limitations section of `docs/KMS_HSM.md`.
