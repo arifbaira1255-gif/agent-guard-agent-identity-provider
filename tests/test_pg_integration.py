@@ -12,7 +12,7 @@ import unittest
 from cryptography.fernet import Fernet
 
 from agent_identity import IdentityConfig, IdentityService
-from agent_identity.core.errors import ConflictError, StorageError
+from agent_identity.core.errors import ConflictError, StorageError, UnauthorizedError
 from agent_identity.core.models import (AgentRecord, CredentialRecord, InstanceRecord,
                                          RevocationReason, RevocationRecord, Status, TargetType)
 from agent_identity.spiffe.bindings import Binding
@@ -84,13 +84,15 @@ class Migrations(PgCase):
     def test_fresh_apply_idempotent_and_tamper_detection(self):
         db = Database(self.cfg)
         try:
-            self.assertEqual(migrate.migrate(db), [1])
+            self.assertEqual(migrate.migrate(db),
+                             list(range(1, migrate.expected_version() + 1)))
             self.assertEqual(migrate.migrate(db), [])                       # repeatable
-            self.assertEqual(migrate.verify_schema(db), 1)
+            self.assertEqual(migrate.verify_schema(db), migrate.expected_version())
             tables = {r["table_name"] for r in db.run("t", lambda c: c.execute(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema='public'").fetchall())}
             for t in ("agents", "agent_instances", "credentials", "revocations", "spiffe_bindings",
-                      "keystore_keys", "organizations", "agent_spawns", "trust_roots", "issuer_certificates"):
+                      "keystore_keys", "organizations", "agent_spawns", "trust_roots",
+                      "issuer_certificates", "kms_keys", "kms_key_audit"):
                 self.assertIn(t, tables)
             db.run("tamper", lambda c: c.execute("UPDATE schema_migrations SET checksum='x' WHERE version=1"))
             with self.assertRaises(MigrationError):
@@ -114,7 +116,10 @@ class Migrations(PgCase):
                     d.close()
             with cf.ThreadPoolExecutor(4) as ex:
                 results = list(ex.map(one, range(4)))
-            self.assertEqual(sorted(len(r) for r in results), [0, 0, 0, 1])
+            # exactly one migrator does the work; it applies ALL pending migrations
+            # (a brand-new database has none of them yet)
+            self.assertEqual(sorted(len(r) for r in results),
+                             [0, 0, 0, migrate.expected_version()])
         finally:
             with admin() as a:
                 a.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
@@ -205,6 +210,25 @@ class Constraints(PgCase):
         other, _ = self.mkagent("acme")
         with self.assertRaises(ConflictError):
             self.st.agents.put_agent(replace(rec, parent_agent_id=other["agent_id"], lineage=(other["agent_id"],)))
+
+    def test_stuck_organization_can_be_repaired(self):
+        org = "stuck" + secrets.token_hex(3)
+        real = self.st.trust.put_issuer_cert
+        def boom(cert):
+            raise StorageError("simulated outage between the two writes")
+        self.st.trust.put_issuer_cert = boom
+        try:
+            with self.assertRaises(StorageError):
+                self.svc.register_organization(org, "Stuck Org")
+        finally:
+            self.st.trust.put_issuer_cert = real
+        self.assertEqual(self.st.db.run("c", lambda c: c.execute(
+            "SELECT count(*) AS n FROM issuer_certificates WHERE org_id=%s", (org,)).fetchone()["n"]), 0)
+        self.svc.repair_organization(org)
+        a = self.svc.register_agent(org, "bot", "t", "o@x.com", "d", ["x:read"], "production", {})
+        i = self.svc.create_agent_instance(a["agent_id"])
+        c = self.svc.issue_credential(a["agent_id"], i["instance_id"])
+        self.assertTrue(self.svc.verify_credential(c.token, require_proof=False).valid)
 
     def test_unknown_org_agent_rejected(self):
         a, _ = self.mkagent()
@@ -341,6 +365,195 @@ class Reconnect(PgCase):
                        "WHERE datname=%s AND pid <> pg_backend_pid()", (self.dbname,))
         self.assertIsNotNone(self.st.agents.get_agent(a["agent_id"]))              # retry + pool health check
         self.assertTrue(self.st.db.readiness()["ready"])
+
+
+class KmsMetadata(PgCase):
+    """Step 5: the KMS metadata + audit stores on REAL PostgreSQL.
+
+    The provider here is the local software backend (dev-only) because the point of this
+    class is the *durable metadata* path — atomic compare-and-swap lifecycle transitions and
+    the append-only audit table — not the crypto provider (covered in test_kms_vault.py /
+    test_kms_pkcs11.py).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from cryptography.fernet import Fernet as _F
+        from agent_identity.kms import DefaultKeyManager
+        from agent_identity.kms.providers.local_provider import LocalKeyBackend
+        from agent_identity.kms.metadata import PgKeyAuditSink, PgKeyMetadataStore
+        cls.db = Database(cls.cfg)
+        cls.km = DefaultKeyManager(
+            LocalKeyBackend(_F.generate_key()),
+            metadata=PgKeyMetadataStore(cls.db), audit=PgKeyAuditSink(cls.db))
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.db.close()
+        finally:
+            super().tearDownClass()
+
+    def test_rows_survive_a_fresh_manager(self):
+        """Metadata is durable: a new store over the same DB sees the key."""
+        from agent_identity.kms import DefaultKeyManager
+        from agent_identity.kms.providers.local_provider import LocalKeyBackend
+        from agent_identity.kms.metadata import PgKeyMetadataStore
+        from cryptography.fernet import Fernet as _F
+        self.km.create_key("pgk_durable")
+        other = DefaultKeyManager(LocalKeyBackend(_F.generate_key()),
+                                  metadata=PgKeyMetadataStore(Database(self.cfg)))
+        meta = other.get_key_status("pgk_durable")
+        self.assertEqual(meta.public_key_b64, self.km.get_public_key("pgk_durable"))
+
+    def test_lifecycle_transitions_persist_and_are_atomic(self):
+        self.km.create_key("pgk_rot")
+        self.km.rotate_key("pgk_rot", "pgk_rot2", grace_seconds=10)
+        rows = self.db.run("q", lambda c: c.execute(
+            "SELECT status, rotates_to FROM kms_keys WHERE key_id='pgk_rot'").fetchone())
+        self.assertEqual(rows["status"], "rotating")
+        self.assertEqual(rows["rotates_to"], "pgk_rot2")
+        # a second concurrent rotation must lose the CAS
+        from agent_identity.kms import KeyStateError
+        with self.assertRaises(KeyStateError):
+            self.km.rotate_key("pgk_rot", "pgk_rot3", grace_seconds=10)
+
+    def test_revoked_is_terminal_enforced_by_the_database(self):
+        self.km.create_key("pgk_rev")
+        self.km.revoke_key("pgk_rev", reason="test")
+        with self.assertRaises(Exception):        # DB trigger refuses the illegal transition
+            self.db.run("bad", lambda c: c.execute(
+                "UPDATE kms_keys SET status='active' WHERE key_id='pgk_rev'"))
+
+    def test_no_private_key_column_exists(self):
+        cols = {r["column_name"] for r in self.db.run("cols", lambda c: c.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='kms_keys'").fetchall())}
+        for bad in ("private_key", "encrypted_private", "seed", "secret"):
+            self.assertNotIn(bad, cols)
+
+    def test_audit_trail_records_operations_without_secrets(self):
+        self.km.create_key("pgk_audit")
+        self.km.sign("pgk_audit", b"domain", b"data")
+        self.km.revoke_key("pgk_audit", reason="test")
+        events = [r["event"] for r in self.db.run("a", lambda c: c.execute(
+            "SELECT event FROM kms_key_audit WHERE key_id='pgk_audit'").fetchall())]
+        self.assertIn("kms.key.create", events)
+        self.assertIn("kms.sign", events)
+        self.assertIn("kms.key.revoke", events)
+        rows = self.db.run("a2", lambda c: c.execute(
+            "SELECT * FROM kms_key_audit WHERE key_id='pgk_audit'").fetchall())
+        for r in rows:
+            for col in ("event", "result", "reason", "detail"):
+                self.assertNotIn("BEGIN", str(r.get(col)))
+
+
+class KmsEndToEndIssuance(PgCase):
+    """Step 5 acceptance (INTEGRATION): the EXISTING IdentityService issues and verifies
+    credentials whose root/issuer signing keys are managed by the KMS, and revoking a key in
+    the KMS makes verification fail closed.
+
+    Provider = local software backend (development only): what is under test is the
+    *wiring + lifecycle gate* through the real PostgreSQL stores, not the crypto provider
+    (Vault/PKCS#11 coverage lives in test_kms_vault.py / test_kms_pkcs11.py).
+    """
+
+    migrate_on_setup = False
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dbname = "ag_test_" + secrets.token_hex(6)
+        with admin() as a:
+            a.execute(f'CREATE DATABASE "{cls.dbname}"')
+        cls.master = Fernet.generate_key()
+        cls.cfg = pgcfg(cls.dbname)
+        db = Database(cls.cfg)
+        migrate.migrate(db)
+        db.close()
+        from cryptography.fernet import Fernet as _F
+        from agent_identity.kms import DefaultKeyManager
+        from agent_identity.kms.metadata import PgKeyAuditSink, PgKeyMetadataStore
+        from agent_identity.kms.providers.local_provider import LocalKeyBackend
+        from agent_identity.kms.trust_bridge import managed_storage_kwargs
+        cls.kmdb = Database(cls.cfg)
+        cls.km = DefaultKeyManager(LocalKeyBackend(_F.generate_key()),
+                                   metadata=PgKeyMetadataStore(cls.kmdb),
+                                   audit=PgKeyAuditSink(cls.kmdb))
+        cls.st = build_postgres_storage(cls.cfg, cls.master)
+        kwargs = managed_storage_kwargs(cls.st, cls.km)
+        cls.svc = IdentityService(IdentityConfig(trust_domain=TD, log_to_python_logging=False),
+                                  **kwargs)                      # keystore=KMS manager, trust=bridge
+        cls.svc.register_organization("acme", "Acme")
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.st.close()
+        finally:
+            try:
+                cls.kmdb.close()
+            finally:
+                with admin() as a:
+                    a.execute(f'DROP DATABASE IF EXISTS "{cls.dbname}" WITH (FORCE)')
+
+    def _org_cred(self, org_id):
+        """A fresh org + agent + credential, so destructive tests cannot poison others."""
+        if self.st.agents.get_org(org_id) is None:
+            self.svc.register_organization(org_id, org_id.title())
+        a = self.svc.register_agent(org_id, "bot-" + secrets.token_hex(3), "t", "o@x.com", "d",
+                                    ["x:read"], "production", {})
+        i = self.svc.create_agent_instance(a["agent_id"])
+        return a, i, self.svc.issue_credential(a["agent_id"], i["instance_id"])
+
+    def test_root_and_issuer_keys_are_kms_managed(self):
+        org = self.st.agents.get_org("acme")
+        meta = self.km.metadata.get(org.active_issuer_key_id)
+        self.assertIsNotNone(meta)                       # issuer key exists in the KMS
+        self.assertEqual(meta.provider, "local")
+        self.assertIsNotNone(self.km.metadata.get(self.svc.root_key_id))   # root key too
+
+    def test_issue_and_verify_with_kms_signed_credential(self):
+        _a, _i, c = self._org_cred("acme")
+        self.assertTrue(self.svc.verify_credential(c.token, require_proof=False).valid)
+
+    def test_no_key_material_reaches_any_database_table(self):
+        self._org_cred("nokey")
+        # the legacy key store is bypassed entirely -> no key rows at all
+        n = self.kmdb.run("q", lambda cn: cn.execute(
+            "SELECT count(*) AS n FROM keystore_keys").fetchone()["n"])
+        self.assertEqual(n, 0)
+        # kms_keys holds public metadata only
+        rows = self.kmdb.run("q2", lambda cn: cn.execute("SELECT * FROM kms_keys").fetchall())
+        self.assertTrue(rows)
+        for r in rows:
+            self.assertNotIn("private", " ".join(r.keys()).lower())
+            self.assertNotIn("BEGIN", " ".join(str(v) for v in r.values()))
+
+    def test_revoking_issuer_key_in_kms_fails_closed(self):
+        a, i, c = self._org_cred("revco")
+        self.assertTrue(self.svc.verify_credential(c.token, require_proof=False).valid)
+        org = self.st.agents.get_org("revco")
+        self.km.revoke_key(org.active_issuer_key_id, reason="compromise")
+        # the already-issued credential must STOP verifying...
+        self.assertFalse(self.svc.verify_credential(c.token, require_proof=False).valid)
+        # ...and no new credential can be minted with that issuer key
+        with self.assertRaises(UnauthorizedError):
+            self.svc.issue_credential(a["agent_id"], i["instance_id"])
+
+    def test_rotation_overlap_keeps_old_credentials_valid(self):
+        a, i, c_old = self._org_cred("rotco")
+        self.assertTrue(self.svc.verify_credential(c_old.token, require_proof=False).valid)
+        self.svc.rotate_issuer_key("rotco", grace_seconds=3600)
+        # a credential signed by the OUTGOING issuer key still verifies during the overlap
+        self.assertTrue(self.svc.verify_credential(c_old.token, require_proof=False).valid)
+        # ...and a credential under the NEW issuer key verifies too
+        c_new = self.svc.issue_credential(a["agent_id"], i["instance_id"])
+        self.assertTrue(self.svc.verify_credential(c_new.token, require_proof=False).valid)
+        self.assertNotEqual(c_old.passport["issuer_key_id"], c_new.passport["issuer_key_id"])
+        # both issuer keys verify through the KMS at once (the whole point of the overlap)
+        self.assertIsNotNone(self.km.verification_material(c_old.passport["issuer_key_id"]))
+        self.assertIsNotNone(self.km.verification_material(c_new.passport["issuer_key_id"]))
 
 
 if __name__ == "__main__":
