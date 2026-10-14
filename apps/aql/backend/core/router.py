@@ -31,7 +31,7 @@ from typing import Any, Callable
 
 from .config import get_settings
 
-# ── Optional tokenizer (falls back to a char heuristic if unavailable) ────────
+# ── Optional tokenizer (falls back to a char heuristic if unavailable) ──────────
 try:  # pragma: no cover - depends on the environment
     import tiktoken
 
@@ -258,7 +258,7 @@ class ModelRouter:
         self._classifier = classifier
         self._use_llm_classifier = use_llm_classifier
 
-    # ── Classification ───────────────────────────────────────────────────────
+    # ── Classification ────────────────────────────────────────────────────────
     def _heuristic_score(self, task: str) -> tuple[int, list[str]]:
         """Return (score, signals) for ``task`` using lightweight heuristics."""
         text = (task or "").lower()
@@ -336,7 +336,7 @@ class ModelRouter:
         score, signals = self._heuristic_score(task)
         return self._score_to_complexity(score), signals
 
-    # ── Provider helpers ────────────────────────────────────────────────────
+    # ── Provider helpers ──────────────────────────────────────────────────────
     def _unorouter_enabled(self) -> bool:
         """True when a UnoRouter key is set."""
         return bool(getattr(self.settings, "unorouter_api_key", ""))
@@ -366,7 +366,7 @@ class ModelRouter:
             return self.settings.experimentlab_api_key
         return self.settings.unorouter_api_key
 
-    # ── Routing ──────────────────────────────────────────────────────────────
+    # ── Routing ───────────────────────────────────────────────────────────────
     def route(self, task: str, prefer: str | None = None) -> RouteDecision:
         """Return the model to use for ``task``.
 
@@ -449,7 +449,7 @@ class ModelRouter:
             fallback_chain=chain,
         )
 
-    # ── Execution with fallback ──────────────────────────────────────────────
+    # ── Execution with fallback ───────────────────────────────────────────────
     def _call_provider(
         self, provider: str, model: str, prompt: str, system: str | None = None
     ) -> str:
@@ -493,7 +493,7 @@ class ModelRouter:
         payload: dict[str, Any],
         headers: dict[str, str],
         timeout: int = 60,
-        provider: str = provider,
+        provider: str = "unorouter",
     ) -> dict[str, Any]:
         """POST ``payload`` as JSON and return the decoded response body.
 
