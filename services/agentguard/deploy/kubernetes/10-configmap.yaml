@@ -1,0 +1,40 @@
+# Non-secret configuration for the identity service.
+# Secrets (passwords, master key, session secret) are NEVER here -- see 11-secrets.example.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentguard-identity-config
+  namespace: agentguard
+  labels: {app.kubernetes.io/name: agentguard}
+data:
+  AGENTGUARD_ENV: "production"
+  AGENTGUARD_LISTEN_HOST: "0.0.0.0"
+  AGENTGUARD_LISTEN_PORT: "8443"
+  AGENTGUARD_MAX_WORKERS: "64"
+  AGENTGUARD_SHUTDOWN_GRACE_S: "25"
+  # --- PostgreSQL (authoritative). Keep (replicas * POOL_MAX) below the server max_connections.
+  AGENTGUARD_PG_HOST: "agentguard-postgres.agentguard.svc.cluster.local"
+  AGENTGUARD_PG_PORT: "5432"
+  AGENTGUARD_PG_DB: "agentguard"
+  AGENTGUARD_PG_USER: "agentguard"
+  AGENTGUARD_PG_SSLMODE: "verify-full"
+  AGENTGUARD_PG_SSLROOTCERT: "/etc/pg/ca.pem"
+  AGENTGUARD_PG_POOL_MIN: "2"
+  AGENTGUARD_PG_POOL_MAX: "10"
+  AGENTGUARD_PG_STATEMENT_TIMEOUT_MS: "5000"
+  AGENTGUARD_PG_AUTO_MIGRATE: "0"          # migrations run as a separate Job, never at startup
+  # --- Redis (distributed transient security state: replay cache, caches, rate limits, locks).
+  AGENTGUARD_REDIS_HOST: "agentguard-redis.agentguard.svc.cluster.local"
+  AGENTGUARD_REDIS_PORT: "6380"
+  AGENTGUARD_REDIS_TLS: "1"
+  AGENTGUARD_REDIS_TLS_CA_CERT: "/etc/redis/ca.pem"
+  AGENTGUARD_REDIS_POOL_MAX: "50"
+  # --- KMS/HSM. local-dev is refused outside development by the server itself.
+  AGENTGUARD_KMS_PROVIDER: "aws-kms"
+  AGENTGUARD_KMS_REGION: "us-east-1"
+  # --- SPIFFE/SPIRE workload identity.
+  AGENTGUARD_SPIFFE_TRUST_DOMAIN: "agentguard.example.net"
+  SPIFFE_ENDPOINT_SOCKET: "unix:///run/spire/sockets/agent.sock"
+  # --- Step 7 idempotency retention.
+  AGENTGUARD_IDEMPOTENCY_TTL_SECONDS: "86400"
+  AGENTGUARD_IDEMPOTENCY_STALE_SECONDS: "120"

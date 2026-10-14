@@ -1,0 +1,133 @@
+{
+  "meta": {
+    "tool": "happy",
+    "version": "1.0.0",
+    "python": "3.11.15",
+    "platform": "linux",
+    "repeat": 15,
+    "subject": "backend_demo.hpy",
+    "subject_loc": 102,
+    "generated_python_loc": 112,
+    "build_size_ratio": 1.098,
+    "sourcemap_anchors": 64,
+    "formatter_idempotent": true
+  },
+  "stages": {
+    "lex": {
+      "name": "lex",
+      "runs": 15,
+      "min_ms": 1.7795,
+      "mean_ms": 1.8258,
+      "median_ms": 1.8008,
+      "p95_ms": 1.8445,
+      "ops_per_sec": 547.7
+    },
+    "parse": {
+      "name": "parse",
+      "runs": 15,
+      "min_ms": 2.4179,
+      "mean_ms": 2.4339,
+      "median_ms": 2.4319,
+      "p95_ms": 2.4478,
+      "ops_per_sec": 410.9
+    },
+    "semantic_typecheck": {
+      "name": "semantic_typecheck",
+      "runs": 15,
+      "min_ms": 2.7545,
+      "mean_ms": 3.0272,
+      "median_ms": 2.7714,
+      "p95_ms": 2.921,
+      "ops_per_sec": 330.3
+    },
+    "ir_lowering": {
+      "name": "ir_lowering",
+      "runs": 15,
+      "min_ms": 0.3402,
+      "mean_ms": 0.3659,
+      "median_ms": 0.3542,
+      "p95_ms": 0.4036,
+      "ops_per_sec": 2732.9
+    },
+    "optimize": {
+      "name": "optimize",
+      "runs": 15,
+      "min_ms": 0.0514,
+      "mean_ms": 0.0534,
+      "median_ms": 0.0522,
+      "p95_ms": 0.0562,
+      "ops_per_sec": 18730.1
+    },
+    "codegen_python": {
+      "name": "codegen_python",
+      "runs": 15,
+      "min_ms": 0.151,
+      "mean_ms": 0.1587,
+      "median_ms": 0.1566,
+      "p95_ms": 0.1668,
+      "ops_per_sec": 6302.5
+    },
+    "compile_to_python": {
+      "name": "compile_to_python",
+      "runs": 15,
+      "min_ms": 3.4617,
+      "mean_ms": 5.2776,
+      "median_ms": 3.4932,
+      "p95_ms": 3.6124,
+      "ops_per_sec": 189.5
+    },
+    "end_to_end_execute": {
+      "name": "end_to_end_execute",
+      "runs": 15,
+      "min_ms": 0.8385,
+      "mean_ms": 0.914,
+      "median_ms": 0.8796,
+      "p95_ms": 1.0094,
+      "ops_per_sec": 1094.1
+    },
+    "security_analyze": {
+      "name": "security_analyze",
+      "runs": 15,
+      "min_ms": 3.6716,
+      "mean_ms": 4.6997,
+      "median_ms": 3.7051,
+      "p95_ms": 8.1646,
+      "ops_per_sec": 212.8
+    },
+    "format": {
+      "name": "format",
+      "runs": 15,
+      "min_ms": 2.5213,
+      "mean_ms": 2.5359,
+      "median_ms": 2.5343,
+      "p95_ms": 2.5488,
+      "ops_per_sec": 394.3
+    },
+    "lint": {
+      "name": "lint",
+      "runs": 15,
+      "min_ms": 2.595,
+      "mean_ms": 2.8904,
+      "median_ms": 2.8868,
+      "p95_ms": 3.1374,
+      "ops_per_sec": 346.0
+    },
+    "compile_whole_corpus": {
+      "name": "compile_whole_corpus",
+      "runs": 5,
+      "min_ms": 29.1261,
+      "mean_ms": 39.4699,
+      "median_ms": 33.9551,
+      "p95_ms": 53.9893,
+      "ops_per_sec": 25.3
+    }
+  },
+  "repo": {
+    "python_files": 92,
+    "python_lines": 32058,
+    "test_files": 16,
+    "test_lines": 5814,
+    "happy_example_lines": 308,
+    "package_initializers": 10
+  }
+}

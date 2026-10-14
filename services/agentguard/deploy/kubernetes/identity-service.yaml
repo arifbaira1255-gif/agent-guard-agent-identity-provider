@@ -1,0 +1,101 @@
+# AgentGuard Identity Service -- multi-replica Deployment + Service (Step 7 topology, Phase 9
+# production hardening).
+#
+# Stateless replicas: durable state lives in PostgreSQL, distributed transient state in Redis.
+# Any replica can serve any request; scale with `replicas` (or the HPA in 80-pdb-hpa.yaml).
+# Readiness gates traffic on the capabilities required to make a correct security decision
+# (DB + schema, Redis, and -- where configured -- SPIFFE/SPIRE, KMS/HSM, trust).
+#
+# ConfigMap, Secret, ServiceAccount, PDB and HPA live in their own files (10-, 11-, 20-, 80-).
+# Apply the whole topology with:  kubectl apply -k deploy/kubernetes
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentguard-identity
+  namespace: agentguard
+  labels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: identity}
+spec:
+  replicas: 3                       # stateless: scale horizontally
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0             # never drop below the desired count during a rollout
+      maxSurge: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: identity}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: identity}
+    spec:
+      serviceAccountName: agentguard-identity
+      # Graceful shutdown: give in-flight security decisions time to finish before SIGKILL.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: identity
+          image: agentguard/agent-identity:0.1.0
+          args: ["serve"]           # entrypoint runs the HTTP server with graceful shutdown
+          ports:
+            - {name: https, containerPort: 8443}
+          envFrom:
+            - configMapRef: {name: agentguard-identity-config}
+            - secretRef: {name: agentguard-identity-secrets}
+          # Liveness: process only. A dependency outage must NOT restart a healthy process.
+          livenessProbe:
+            httpGet: {path: /livez, port: 8443, scheme: HTTP}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          # Readiness: reflects DB + schema + Redis (+ SPIFFE/KMS/trust where required).
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8443, scheme: HTTP}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          # Startup: allow migrations / SPIRE socket / KMS warm-up before liveness begins.
+          startupProbe:
+            httpGet: {path: /livez, port: 8443, scheme: HTTP}
+            periodSeconds: 5
+            failureThreshold: 30
+          lifecycle:
+            preStop:
+              exec:
+                # Ask the server to drain, then let terminationGracePeriodSeconds elapse.
+                command: ["/bin/sh", "-c", "sleep 5"]
+          resources:
+            requests: {cpu: "250m", memory: "256Mi"}
+            limits: {cpu: "1", memory: "512Mi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: spire-agent-socket, mountPath: /run/spire/sockets, readOnly: true}
+            - {name: pg-ca, mountPath: /etc/pg, readOnly: true}
+            - {name: redis-ca, mountPath: /etc/redis, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: spire-agent-socket
+          csi: {driver: csi.spiffe.io, readOnly: true}
+        - name: pg-ca
+          secret: {secretName: agentguard-pg-ca}
+        - name: redis-ca
+          secret: {secretName: agentguard-redis-ca}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentguard-identity
+  namespace: agentguard
+  labels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: identity}
+spec:
+  selector: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: identity}
+  ports:
+    - {name: https, port: 8443, targetPort: 8443}

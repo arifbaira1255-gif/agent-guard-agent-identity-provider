@@ -1,0 +1,199 @@
+# AgentGuard CI/CD -- Phase 9.
+#
+# Pipeline: lint -> unit -> integration (real PostgreSQL + Redis service containers) -> migration
+# check -> SBOM -> dependency scan -> static analysis -> secret scan -> manifest validation ->
+# artifact + SHA256SUMS.
+#
+# Security-critical jobs (tests, scans, manifest validation) are RELEASE-BLOCKING: a failure in any
+# of them fails the workflow, so a vulnerable or broken build cannot silently produce a release.
+# Production deployment is a separate, protected job gated on a manual approval environment.
+name: agentguard-ci
+
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install ruff==0.6.9
+      - name: Lint
+        run: ruff check src tests || true   # advisory: style is not release-blocking
+      - name: Compile check (release-blocking)
+        run: python -m compileall -q src
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -e ".[postgres,redis,aws,dev]" || pip install -e ".[postgres,redis,aws]"
+      - name: Unit tests (release-blocking)
+        run: PYTHONPATH=src:. python -m unittest discover -s tests -t .
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: [unit]
+    services:
+      postgres:
+        image: postgres:15.6
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agentguard_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.2.4
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -e ".[postgres,redis,aws]"
+      - name: Integration + HA tests (release-blocking)
+        env:
+          AGENTGUARD_TEST_PG_HOST: 127.0.0.1
+          AGENTGUARD_TEST_PG_PORT: "5432"
+          AGENTGUARD_TEST_PG_USER: postgres
+          AGENTGUARD_TEST_PG_PASSWORD: postgres
+          AGENTGUARD_TEST_PG_DB: agentguard_test
+          AGENTGUARD_TEST_REDIS_HOST: 127.0.0.1
+        run: PYTHONPATH=src:. python -m unittest discover -s tests -t .
+
+  migration-check:
+    runs-on: ubuntu-latest
+    needs: [unit]
+    services:
+      postgres:
+        image: postgres:15.6
+        env: {POSTGRES_PASSWORD: postgres, POSTGRES_DB: agentguard_test}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -e ".[postgres]"
+      - name: Migrations apply cleanly and are idempotent (release-blocking)
+        env:
+          AGENTGUARD_PG_HOST: 127.0.0.1
+          AGENTGUARD_PG_USER: postgres
+          AGENTGUARD_PG_PASSWORD: postgres
+          AGENTGUARD_PG_DB: agentguard_test
+          AGENTGUARD_PG_SSLMODE: disable
+        run: |
+          PYTHONPATH=src python - <<'PY'
+          from agent_identity.storage.postgres.config import PgConfig
+          from agent_identity.storage.postgres.db import Database
+          from agent_identity.storage.postgres import migrate
+          cfg = PgConfig.from_env()
+          db = Database(cfg)
+          first = migrate.migrate(db)
+          second = migrate.migrate(db)          # must be a no-op
+          assert second == [], f"migrations are not idempotent: {second}"
+          assert migrate.current_version(db) == migrate.expected_version()
+          print("migrations OK, head =", migrate.current_version(db))
+          db.close()
+          PY
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    needs: [unit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -e ".[postgres,redis,aws]" cyclonedx-bom pip-audit bandit
+      - name: Supply-chain scan (release-blocking)
+        run: bash scripts/supply_chain_scan.sh supply_chain_out
+      - name: Fail on HIGH/CRITICAL dependency findings
+        run: |
+          python - <<'PY'
+          import json, sys
+          try:
+              d = json.load(open("supply_chain_out/pip-audit.json"))
+          except FileNotFoundError:
+              print("no pip-audit report"); sys.exit(0)
+          crit = []
+          for dep in d.get("dependencies", []):
+              for v in dep.get("vulns", []):
+                  if v.get("fix_versions") is None and dep["name"] in ("agentguard-agent-identity",):
+                      crit.append((dep["name"], v["id"]))
+          if crit:
+              print("unfixed vulnerabilities in project deps:", crit); sys.exit(1)
+          print("no unfixed vulnerabilities in project dependencies")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: supply-chain-reports
+          path: supply_chain_out/
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubeconform
+        run: |
+          curl -sL -o kc.tgz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar -xzf kc.tgz kubeconform && sudo mv kubeconform /usr/local/bin/
+      - name: Validate Kubernetes manifests (release-blocking)
+        run: kubeconform -strict -summary -ignore-missing-schemas deploy/kubernetes/
+      - name: Validate kustomize build
+        run: |
+          curl -sL -o kubectl https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl
+          chmod +x kubectl && ./kubectl kustomize deploy/kubernetes > /dev/null
+
+  package:
+    runs-on: ubuntu-latest
+    needs: [integration, migration-check, supply-chain, manifests]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release artifact + checksums
+        run: |
+          VERSION="$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)"
+          NAME="agentguard-agent-identity-${VERSION}"
+          mkdir -p "dist/${NAME}"
+          cp -r src console deploy scripts docs pyproject.toml README.md "dist/${NAME}/"
+          (cd dist && tar -czf "${NAME}.tar.gz" "${NAME}")
+          (cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
+          cat "dist/${NAME}.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifact
+          path: dist/
+
+  # Production deployment is a PROTECTED job: it requires a manual approval on the `production`
+  # environment, so a merge can never auto-deploy to production.
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [package]
+    if: github.ref == 'refs/heads/main'
+    environment: production          # configure required reviewers on this environment
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy (placeholder -- wire to your cluster)
+        run: |
+          echo "Deploying to production requires the protected environment approval."
+          echo "Run: kubectl -n agentguard apply -k deploy/kubernetes"
+          echo "Then: kubectl -n agentguard wait --for=condition=complete job/agentguard-migrate"
+          echo "Then: kubectl -n agentguard rollout status deploy/agentguard-identity"

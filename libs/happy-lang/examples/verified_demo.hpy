@@ -1,0 +1,31 @@
+// ============================================================
+//  Happy (.hpy) — a clean, fully-verifiable program
+//  Used by `happy verify` and the Step-6 test suite: it passes
+//  every rung of the trust ladder (parse -> typecheck ->
+//  contracts -> tests -> security) and is APPROVED.
+// ============================================================
+
+module demo.verified
+
+// ---- Struct with a type invariant --------------------------
+type Point {
+    x: Int
+    y: Int
+
+    invariant x >= 0, "x must be non-negative"
+}
+
+// ---- Function with contracts -------------------------------
+function add(a: Int, b: Int) -> Int
+    requires a >= 0, "a must be non-negative"
+    requires b >= 0, "b must be non-negative"
+    ensures result >= a
+{
+    return a + b
+}
+
+// ---- Application entry point -------------------------------
+app Verified {
+    let p = Point { x: 1, y: 2 }
+    println(str(add(p.x, p.y)))
+}

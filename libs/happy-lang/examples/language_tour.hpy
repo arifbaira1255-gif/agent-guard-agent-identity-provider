@@ -1,0 +1,79 @@
+// examples/language_tour.hpy
+//
+// A tour of the Happy language features added in Step 7:
+// traits + impl, structural pattern matching, enums, generics,
+// contracts and capabilities.  Run with:  happy run examples/language_tour.hpy
+
+module demo.tour
+
+import std.io
+
+// ---- A trait (interface) with a required method ----------------------
+trait Shape {
+  function area(self) -> Int
+  function name(self) -> String
+}
+
+// ---- Data types ------------------------------------------------------
+type Rect {
+  width: Int
+  height: Int
+}
+
+type Square {
+  side: Int
+}
+
+// ---- Implementing the trait for each type ----------------------------
+impl Shape for Rect {
+  function area(self) -> Int { return self.width * self.height }
+  function name(self) -> String { return "rect" }
+}
+
+impl Shape for Square {
+  function area(self) -> Int { return self.side * self.side }
+  function name(self) -> String { return "square" }
+}
+
+// ---- An enum consumed by pattern matching ----------------------------
+enum Order {
+  Pending(Int)
+  Shipped(String)
+  Delivered
+}
+
+// `match` is exhaustive-checked at compile time.
+function describe(order: Order) -> String {
+  match order {
+    Pending(n)    -> { return "pending for " + str(n) + " item(s)" }
+    Shipped(track) -> { return "shipped via " + track }
+    Delivered     -> { return "delivered" }
+  }
+}
+
+// ---- Contracts -------------------------------------------------------
+function safe_div(a: Int, b: Int) -> Int
+  requires b != 0, "divisor must be non-zero"
+{
+  return int(a / b)
+}
+
+// ---- Generic function ------------------------------------------------
+function identity<T>(value: T) -> T {
+  return value
+}
+
+app Main {
+  let r = Rect { width: 3, height: 4 }
+  let s = Square { side: 5 }
+
+  println(r.name() + " area=" + str(r.area()))
+  println(s.name() + " area=" + str(s.area()))
+
+  println(describe(Pending(2)))
+  println(describe(Shipped("DHL")))
+  println(describe(Delivered))
+
+  println("div=" + str(safe_div(20, 4)))
+  println("id=" + str(identity(41)))
+}

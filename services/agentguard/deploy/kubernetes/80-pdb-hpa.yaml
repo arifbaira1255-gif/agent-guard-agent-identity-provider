@@ -1,0 +1,29 @@
+# Availability + scaling guards for the identity service.
+# PDB keeps a quorum available during voluntary disruptions (node drains, cluster upgrades).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentguard-identity-pdb
+  namespace: agentguard
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: identity}
+---
+# HPA scales on CPU. Readiness already removes unhealthy replicas from the Service, so scaling and
+# routing are independent. minReplicas=3 keeps a quorum for the PDB.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agentguard-identity-hpa
+  namespace: agentguard
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: agentguard-identity}
+  minReplicas: 3
+  maxReplicas: 12
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300     # avoid flapping on a transient CPU dip
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}

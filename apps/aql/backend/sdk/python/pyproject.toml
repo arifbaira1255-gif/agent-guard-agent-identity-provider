@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aql1"
+version = "1.0.0"
+description = "Lightweight Python SDK for the AQL-1 autonomous agent operating layer REST API."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "AQL-1" }]
+keywords = ["aql1", "agents", "ai", "sdk", "rest", "automation"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Typing :: Typed",
+]
+# No hard dependencies: the default transport is the standard library.
+dependencies = []
+
+[project.optional-dependencies]
+# Faster pooled HTTP transport (sync + async).
+httpx = ["httpx>=0.24"]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "httpx>=0.24", "mypy>=1.0", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/aql1/aql1"
+Documentation = "https://github.com/aql1/aql1#readme"
+
+[tool.setuptools]
+py-modules = ["aql1"]
+
+[tool.setuptools.package-data]
+aql1 = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+ignore_missing_imports = true

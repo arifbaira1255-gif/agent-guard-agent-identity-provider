@@ -1,0 +1,83 @@
+# Reference Redis topology for AgentGuard (TLS-enabled, password-protected, AOF persistence).
+#
+# Redis holds DISTRIBUTED TRANSIENT SECURITY STATE (replay cache, permission cache, rate limits,
+# locks). It is required for a correct security decision, so it must be highly available in
+# production. This single-replica StatefulSet is a working reference; for production use a managed
+# Redis (ElastiCache/Memorystore) or Redis Sentinel/Cluster. The application FAILS CLOSED if Redis
+# is unavailable -- it never silently allows a request it cannot replay-check.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentguard-redis
+  namespace: agentguard
+  labels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: redis}
+spec:
+  clusterIP: None
+  selector: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: redis}
+  ports:
+    - {name: redis, port: 6380, targetPort: 6380}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agentguard-redis
+  namespace: agentguard
+  labels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: redis}
+spec:
+  serviceName: agentguard-redis
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: redis}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: redis}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: redis
+          image: redis:7.2.4-bookworm
+          command: ["redis-server"]
+          args:
+            - "--port"
+            - "6380"
+            - "--tls-port"
+            - "0"
+            - "--requirepass"
+            - "$(REDIS_PASSWORD)"
+            - "--appendonly"
+            - "yes"
+            - "--maxmemory"
+            - "1gb"
+            - "--maxmemory-policy"
+            - "noeviction"   # never evict security state silently
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: agentguard-identity-secrets, key: AGENTGUARD_REDIS_PASSWORD}}
+          ports:
+            - {name: redis, containerPort: 6380}
+          readinessProbe:
+            exec: {command: ["sh", "-c", "redis-cli -p 6380 -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec: {command: ["sh", "-c", "redis-cli -p 6380 -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests: {cpu: "250m", memory: "512Mi"}
+            limits: {cpu: "1", memory: "1536Mi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: {requests: {storage: 10Gi}}

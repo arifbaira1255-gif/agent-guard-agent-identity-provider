@@ -1,0 +1,55 @@
+# Unified platform: AQL-1 (product) + AgentGuard (identity/policy) + Happy LANG (jailed language).
+#
+#   cp .env.example .env        # fill in values
+#   docker compose up -d --build                      # backend + frontend, secure defaults
+#   docker compose --profile agentguard up -d --build # ... plus the AgentGuard server (dev mode)
+#
+# Build context for the backend is the repo root (it needs libs/).
+name: agentic-platform
+
+services:
+  aql-backend:
+    build:
+      context: .
+      dockerfile: apps/aql/backend/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      TOOL_GATE_MODE: ${TOOL_GATE_MODE:-local}
+      PYTHON_EXEC_MODE: ${PYTHON_EXEC_MODE:-disabled}
+      AGENTGUARD_URL: ${AGENTGUARD_URL:-http://agentguard:8443}
+      AGENTGUARD_ALLOW_INSECURE_HTTP: ${AGENTGUARD_ALLOW_INSECURE_HTTP:-true}   # private network only
+    ports: ["8000:8000"]
+    read_only: true
+    tmpfs: [/tmp, /app/orchestrator_output]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # `PYTHON_EXEC_MODE=isolated` (namespaces backend) needs unprivileged user namespaces, which
+    # Docker's default seccomp profile blocks. Do NOT just add --privileged: see docs/HOSTING.md
+    # (run code execution on a dedicated worker VM / gVisor / Firecracker instead).
+
+  aql-frontend:
+    build:
+      context: apps/aql/frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+        NEXT_PUBLIC_PAYONEER_PAYMENT_URL: ${NEXT_PUBLIC_PAYONEER_PAYMENT_URL:-}
+    restart: unless-stopped
+    depends_on: [aql-backend]
+    ports: ["3000:3000"]
+
+  agentguard:
+    profiles: ["agentguard"]
+    build:
+      context: services/agentguard
+    restart: unless-stopped
+    environment:
+      # DEVELOPMENT MODE (local-dev KMS, in-memory state). For production use
+      # services/agentguard/deploy/compose/docker-compose.production.yml (Postgres + Redis + TLS).
+      AGENTGUARD_ENV: development
+      AGENTGUARD_LISTEN_PORT: "8443"
+    ports: ["127.0.0.1:8443:8443"]

@@ -1,0 +1,102 @@
+// ============================================================
+//  Happy (.hpy) — Step 4 backend / runtime demonstration
+//  Compiles to Python and runs inside the Happy Runtime.
+// ============================================================
+
+module demo.backend
+
+import std.io
+import std.json
+
+// ---- Struct with a secret field and a type invariant --------
+type Account {
+    id: Int
+    owner: String
+    balance: Float
+    secret pin: Byte
+    active: Bool = true
+
+    invariant balance >= 0.0, "balance must never be negative"
+}
+
+// ---- Enum with payloads ------------------------------------
+enum TransactionKind {
+    Deposit(Float)
+    Withdraw(Float)
+}
+
+// ---- Pure helper -------------------------------------------
+function greet(name: String) -> String {
+    return "Hello, " + name
+}
+
+// ---- Function with runtime-checked contracts ---------------
+function deposit(account: Account, amount: Float) -> Float
+    requires amount > 0.0, "deposit must be positive"
+    ensures result > 0.0
+    ensures result == account.balance
+{
+    let new_balance = account.balance + amount
+    account.balance = new_balance
+    return new_balance
+}
+
+// ---- Control flow ------------------------------------------
+function classify(n: Int) -> String {
+    if n > 100 {
+        return "large"
+    } else if n > 0 {
+        return "positive"
+    } else {
+        return "non-positive"
+    }
+}
+
+function sum_to(n: Int) -> Int {
+    var total = 0
+    for i in range(0, n) {
+        total = total + i
+    }
+    return total
+}
+
+// ---- Async --------------------------------------------------
+async function double(x: Int) -> Int {
+    return x * 2
+}
+
+async function compute(x: Int) -> Int {
+    let a = await double(x)
+    let b = await double(a)
+    return b
+}
+
+// ---- Capability-scoped agent -------------------------------
+capability Audit {
+    grants audit
+}
+
+agent Auditor {
+    capability [Audit]
+    permission []
+
+    function describe(name: String) -> String {
+        return "auditor:" + name
+    }
+}
+
+// ---- Application entry point -------------------------------
+app Backend {
+    let account = Account { id: 1, owner: "Ada", balance: 100.0, pin: 7 }
+    let total = deposit(account, 50.0)
+    println("total=" + str(total))
+    println(greet("world"))
+    println(classify(int(total)))
+    println("sum=" + str(sum_to(5)))
+    println(str(account))
+    println(str(Deposit(50.0)))
+    let k = await compute(5)
+    println("async=" + str(k))
+    println(Auditor.describe("root"))
+    println(stringify(["a", "b", "c"]))
+}

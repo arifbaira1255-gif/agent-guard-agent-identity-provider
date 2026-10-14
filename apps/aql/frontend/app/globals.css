@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Theme tokens. Light values live on :root, dark values on .dark — the
+ * dashboard toggles the `dark` class on <html> and every component reads
+ * these variables, so both themes stay in sync from one place.
+ */
+:root {
+  --bg: #f6f7fb;
+  --bg-elevated: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f9fafc;
+  --border: #e6e8ef;
+  --border-strong: #d5d9e4;
+  --text: #101828;
+  --text-muted: #667085;
+  --text-subtle: #98a2b3;
+  --accent: #3b6ef6;
+  --accent-soft: #eef4ff;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px -12px rgba(16, 24, 40, 0.18);
+}
+
+.dark {
+  --bg: #0b1020;
+  --bg-elevated: #111729;
+  --panel: #131a2e;
+  --panel-2: #0f1526;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --text: #e8ecf7;
+  --text-muted: #8b96b4;
+  --text-subtle: #6b7699;
+  --accent: #5b8bfb;
+  --accent-soft: rgba(59, 110, 246, 0.14);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Smooth theme transition without animating layout. */
+body,
+body * {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-duration: 180ms;
+  transition-timing-function: ease;
+}
+
+/* Thin, theme-aware scrollbars for the timeline + modal. */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Skeleton shimmer used by loading states. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--panel-2);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(148, 163, 184, 0.18),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
+}

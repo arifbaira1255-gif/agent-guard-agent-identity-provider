@@ -1,0 +1,31 @@
+# Ingress: TLS-terminating entry point. The backend is HTTPS (the service speaks TLS), so the
+# ingress re-encrypts to the pod. HSTS is set by the application; the ingress adds a body-size cap
+# and a request timeout so a slow/hostile client cannot pin a worker.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agentguard-identity
+  namespace: agentguard
+  labels: {app.kubernetes.io/name: agentguard}
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["agentguard.example.net"]
+      secretName: agentguard-tls
+  rules:
+    - host: agentguard.example.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agentguard-identity
+                port: {name: https}

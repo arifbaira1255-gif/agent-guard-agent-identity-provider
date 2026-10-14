@@ -1,0 +1,80 @@
+# Reference PostgreSQL topology for AgentGuard (single-primary StatefulSet).
+#
+# This is a REFERENCE topology, not a turnkey HA database. For production, prefer a managed
+# PostgreSQL (RDS/Cloud SQL/Aurora) or an operator (CloudNativePG / Patroni) that provides
+# automated failover, PITR and backups. The StatefulSet below is provided so a self-hosted
+# deployment has a working, persistent, TLS-capable primary; it is NOT a multi-AZ HA cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentguard-postgres
+  namespace: agentguard
+  labels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: postgres}
+spec:
+  clusterIP: None            # headless: stable DNS for the StatefulSet pod
+  selector: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: postgres}
+  ports:
+    - {name: postgres, port: 5432, targetPort: 5432}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agentguard-postgres
+  namespace: agentguard
+  labels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: postgres}
+spec:
+  serviceName: agentguard-postgres
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: postgres}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: postgres}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: postgres
+          image: postgres:15.6-bookworm
+          args: ["-c", "ssl=on", "-c", "ssl_cert_file=/etc/pg/tls/tls.crt",
+                 "-c", "ssl_key_file=/etc/pg/tls/tls.key", "-c", "max_connections=200"]
+          ports:
+            - {name: postgres, containerPort: 5432}
+          env:
+            - name: POSTGRES_DB
+              valueFrom: {configMapKeyRef: {name: agentguard-identity-config, key: AGENTGUARD_PG_DB}}
+            - name: POSTGRES_USER
+              valueFrom: {configMapKeyRef: {name: agentguard-identity-config, key: AGENTGUARD_PG_USER}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: agentguard-identity-secrets, key: AGENTGUARD_PG_PASSWORD}}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "agentguard", "-d", "agentguard"]}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec: {command: ["pg_isready", "-U", "agentguard", "-d", "agentguard"]}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests: {cpu: "500m", memory: "1Gi"}
+            limits: {cpu: "2", memory: "4Gi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false      # postgres writes to PGDATA + /var/run/postgresql
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: tls, mountPath: /etc/pg/tls, readOnly: true}
+      volumes:
+        - name: tls
+          secret: {secretName: agentguard-tls}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: {requests: {storage: 50Gi}}

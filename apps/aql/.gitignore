@@ -1,0 +1,28 @@
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# ── Node / Next.js ──────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-error.log*
+
+# ── Env & secrets ───────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── OS / editor ─────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+backend/.ruff_cache/
+backend/orchestrator_output/

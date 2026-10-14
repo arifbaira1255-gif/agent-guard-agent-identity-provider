@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AgentGuard — Enterprise Security Console</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#121a2e; --panel2:#0f1626; --line:#22304d; --txt:#e6ecf7;
+    --muted:#93a3c0; --accent:#4f8cff; --accent2:#22c55e; --warn:#f59e0b; --bad:#ef4444;
+    --chip:#1b2740; --radius:10px; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--txt);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  a{color:var(--accent)}
+  .skip{position:absolute;left:-9999px;top:0;background:var(--accent);color:#fff;padding:8px 12px;z-index:100}
+  .skip:focus{left:8px;top:8px}
+  header.top{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel2);position:sticky;top:0;z-index:20}
+  .brand{font-weight:700;letter-spacing:.3px}
+  .brand span{color:var(--accent)}
+  .grow{flex:1}
+  .who{color:var(--muted);font-size:12px;text-align:right}
+  .btn{background:var(--chip);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;font:inherit}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.danger{background:#3a1620;border-color:#7f1d1d;color:#fecaca}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn:focus-visible,.tab:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .layout{display:grid;grid-template-columns:230px 1fr;min-height:calc(100vh - 57px)}
+  nav.side{border-right:1px solid var(--line);background:var(--panel2);padding:12px 8px}
+  .tab{display:block;width:100%;text-align:left;background:transparent;border:0;color:var(--muted);padding:9px 12px;border-radius:8px;cursor:pointer;font:inherit}
+  .tab:hover{background:var(--chip);color:var(--txt)}
+  .tab[aria-current="page"]{background:var(--chip);color:var(--txt);box-shadow:inset 2px 0 0 var(--accent)}
+  .tab .lock{float:right;opacity:.6;font-size:11px}
+  main{padding:18px 22px;min-width:0}
+  h1{font-size:19px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:14px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .row.end{justify-content:flex-end}
+  label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+  input,select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:7px 9px;font:inherit;min-width:120px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px}
+  tbody tr:hover{background:var(--panel2)}
+  .mono{font-family:var(--mono);font-size:12px}
+  .chip{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:1px 9px;font-size:11.5px;color:var(--muted)}
+  .sev-critical,.sev-high{color:#fecaca;background:#3a1620;border-color:#7f1d1d}
+  .sev-medium{color:#fde68a;background:#3a2f10;border-color:#7c5a12}
+  .sev-low{color:#bbf7d0;background:#0f2a1a;border-color:#166534}
+  .state{display:flex;gap:10px;align-items:center;padding:16px;border:1px dashed var(--line);border-radius:var(--radius);color:var(--muted)}
+  .state.error{border-color:#7f1d1d;color:#fecaca;background:#2a1116}
+  .state.denied{border-color:#7c5a12;color:#fde68a;background:#2a2210}
+  .state.unavailable{border-color:#334155;color:#cbd5e1;background:#111827}
+  .spinner{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+  .kpi{background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);padding:12px}
+  .kpi .n{font-size:22px;font-weight:700}
+  .kpi .l{color:var(--muted);font-size:12px}
+  .pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:10px;color:var(--muted);font-size:12px}
+  .banner{background:#2a2210;border:1px solid #7c5a12;color:#fde68a;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12.5px}
+  .ok{color:var(--accent2)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  dialog{border:1px solid var(--line);background:var(--panel);color:var(--txt);border-radius:var(--radius);max-width:560px;width:92%}
+  dialog::backdrop{background:rgba(0,0,0,.6)}
+  pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;max-height:340px;font-family:var(--mono);font-size:12px}
+  @media (max-width:820px){
+    .layout{grid-template-columns:1fr}
+    nav.side{border-right:0;border-bottom:1px solid var(--line);display:flex;overflow-x:auto;gap:6px}
+    .tab{white-space:nowrap;width:auto}
+    .tab .lock{display:none}
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+<header class="top">
+  <div class="brand">Agent<span>Guard</span> Console</div>
+  <span class="chip" id="apiChip">/v2</span>
+  <div class="grow"></div>
+  <div class="who" id="whoami" aria-live="polite">not signed in</div>
+  <button class="btn" id="btnRefresh" title="Reload the current view">Refresh</button>
+  <button class="btn" id="btnLogout">Sign out</button>
+</header>
+
+<div class="layout">
+  <nav class="side" aria-label="Console sections">
+    <button class="tab" data-view="overview" aria-current="page">Overview</button>
+    <button class="tab" data-view="agents">Agents</button>
+    <button class="tab" data-view="health">Health &amp; Activity</button>
+    <button class="tab" data-view="policies">Policies</button>
+    <button class="tab" data-view="permissions">Permissions</button>
+    <button class="tab" data-view="egress">Egress &amp; DLP</button>
+    <button class="tab" data-view="anomalies">Anomalies</button>
+    <button class="tab" data-view="incidents">Alerts &amp; Incidents</button>
+    <button class="tab" data-view="approvals">Approvals</button>
+    <button class="tab" data-view="audit">Audit &amp; Integrity</button>
+    <button class="tab" data-view="siem">SIEM</button>
+    <button class="tab" data-view="metrics">Metrics</button>
+  </nav>
+
+  <main id="main" tabindex="-1">
+    <div id="banner" class="banner" hidden></div>
+    <h1 id="viewTitle">Overview</h1>
+    <div class="sub" id="viewSub">Sign in to load live data from the AgentGuard management API.</div>
+    <div id="view" aria-live="polite"></div>
+  </main>
+</div>
+
+<dialog id="confirmDlg" aria-labelledby="confirmTitle">
+  <h2 id="confirmTitle" style="margin-top:0;font-size:16px">Confirm high-impact action</h2>
+  <p id="confirmMsg" class="sub"></p>
+  <div class="row end">
+    <button class="btn" id="confirmNo">Cancel</button>
+    <button class="btn danger" id="confirmYes">Confirm</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ state */
+const S = {
+  base: (location.origin && location.origin.startsWith("http")) ? location.origin : "http://127.0.0.1:8443",
+  token: sessionStorage.getItem("ag_token") || "",
+  csrf: sessionStorage.getItem("ag_csrf") || "",
+  session: null,
+  view: "overview",
+  page: {offset: 0, limit: 25},
+};
+
+/* ------------------------------------------------------------------ api */
+async function api(method, path, {query, body, csrf} = {}) {
+  let url = S.base + path;
+  if (query) {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== null && v !== "") q.set(k, v);
+    if ([...q].length) url += "?" + q.toString();
+  }
+  const headers = {"Accept": "application/json"};
+  if (S.token) headers["Authorization"] = "Bearer " + S.token;
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (csrf) headers["X-CSRF-Token"] = S.csrf;
+  let res;
+  try {
+    res = await fetch(url, {method, headers, body: body === undefined ? undefined : JSON.stringify(body)});
+  } catch (e) {
+    return {status: 0, data: {error: {code: "network_error", message: String(e)}}};
+  }
+  let data = {};
+  try { data = await res.json(); } catch (_) { data = {}; }
+  return {status: res.status, data};
+}
+
+/* ------------------------------------------------------------------ render helpers */
+const el = (tag, attrs = {}, ...kids) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v;
+    else if (k === "html") n.innerHTML = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if (v !== null && v !== undefined) n.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) if (kid !== null && kid !== undefined) n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return n;
+};
+const esc = (s) => String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const view = document.getElementById("view");
+const setTitle = (t, s) => { document.getElementById("viewTitle").textContent = t; document.getElementById("viewSub").textContent = s || ""; };
+const loading = (msg) => { view.replaceChildren(el("div", {class: "state"}, el("div", {class: "spinner"}), msg || "Loading…")); };
+const empty = (msg) => { view.replaceChildren(el("div", {class: "state"}, msg || "No records.")); };
+const errorState = (msg, detail) => {
+  view.replaceChildren(el("div", {class: "state error"}, el("div", {}, el("strong", {}, "Error: "), msg,
+    detail ? el("pre", {}, JSON.stringify(detail, null, 2)) : null)));
+};
+const denied = (msg) => { view.replaceChildren(el("div", {class: "state denied"}, el("div", {}, el("strong", {}, "Permission denied. "), msg || "Your role does not grant access to this view."))); };
+const unavailable = (msg) => { view.replaceChildren(el("div", {class: "state unavailable"}, el("div", {}, el("strong", {}, "Not available. "), msg || "This backend capability is not configured on this deployment."))); };
+
+function table(rows, cols) {
+  if (!rows || !rows.length) return el("div", {class: "state"}, "No records.");
+  const thead = el("thead", {}, el("tr", {}, cols.map(c => el("th", {}, c.label))));
+  const tbody = el("tbody", {}, rows.map(r => el("tr", {}, cols.map(c => {
+    const v = c.get ? c.get(r) : r[c.key];
+    const td = el("td", {class: c.mono ? "mono" : ""});
+    if (c.chip) td.append(el("span", {class: "chip " + (c.chipClass ? c.chipClass(v) : "")}, v === null || v === undefined ? "—" : String(v)));
+    else td.textContent = v === null || v === undefined ? "—" : String(v);
+    return td;
+  }))));
+  return el("table", {}, thead, tbody);
+}
+
+function pager(page, onGo) {
+  if (!page) return el("div");
+  const info = el("span", {}, `total ${page.total} · showing ${page.count} · offset ${page.offset}`);
+  const prev = el("button", {class: "btn", disabled: page.offset <= 0 ? "" : null, onclick: () => onGo(Math.max(0, page.offset - page.limit))}, "Prev");
+  const next = el("button", {class: "btn", disabled: page.has_more ? null : "", onclick: () => onGo(page.next_offset)}, "Next");
+  return el("div", {class: "pager"}, info, prev, next);
+}
+
+/* Handle the standard "plane not configured" envelope honestly. */
+function handleEnvelope(res, render) {
+  if (res.status === 401) { denied("Your session is not authenticated. Sign in again."); return; }
+  if (res.status === 403) { denied(); return; }
+  if (res.status === 0) { errorState("Cannot reach the API at " + S.base, res.data); return; }
+  if (res.status >= 500) { errorState("Server error (" + res.status + ")", res.data); return; }
+  if (res.status === 404) { unavailable("The requested resource or plane is not configured."); return; }
+  if (res.status >= 400) { errorState("Request failed (" + res.status + ")", res.data); return; }
+  if (res.data && res.data.available === false) { unavailable(res.data.reason || "Not configured."); return; }
+  render(res.data);
+}
+
+/* ------------------------------------------------------------------ auth */
+async function login(email, password) {
+  const res = await api("POST", "/v1/auth/login", {body: {email, password}});
+  if (res.status !== 200) return res;
+  S.token = res.data.access_token || "";
+  S.csrf = res.data.csrf_token || "";
+  sessionStorage.setItem("ag_token", S.token);
+  sessionStorage.setItem("ag_csrf", S.csrf);
+  await loadSession();
+  return res;
+}
+async function loadSession() {
+  const res = await api("GET", "/v2/session");
+  if (res.status === 200) { S.session = res.data; paintWho(); applyRbac(); return true; }
+  S.session = null; paintWho(); return false;
+}
+function paintWho() {
+  const w = document.getElementById("whoami");
+  if (!S.session) { w.textContent = "not signed in"; return; }
+  w.textContent = `${S.session.user_id} · ${S.session.org_id || "platform"} · ${(S.session.roles || []).join(", ")}`;
+}
+function has(perm) { return !!(S.session && (S.session.permissions || []).includes(perm)); }
+function applyRbac() {
+  const need = {
+    agents: "agent:read", health: "runtime:read", policies: "policy:read",
+    permissions: "resource:read", egress: "policy:read", anomalies: "runtime:read",
+    incidents: "response:read", approvals: "response:read", audit: "audit:read",
+    siem: "assurance:read", metrics: "runtime:read", overview: null,
+  };
+  document.querySelectorAll(".tab").forEach(t => {
+    const p = need[t.dataset.view];
+    const ok = !p || has(p);
+    t.disabled = !ok;
+    t.setAttribute("aria-disabled", ok ? "false" : "true");
+    t.title = ok ? "" : "Your role does not grant " + p;
+    let lock = t.querySelector(".lock");
+    if (!ok && !lock) t.append(el("span", {class: "lock", "aria-hidden": "true"}, "🔒"));
+    if (ok && lock) lock.remove();
+  });
+}
+
+/* ------------------------------------------------------------------ views */
+const VIEWS = {};
+
+VIEWS.overview = async () => {
+  setTitle("Overview", "Live posture across the security planes.");
+  loading();
+  const [health, agents, incidents, approvals, integrity] = await Promise.all([
+    api("GET", "/v2/health"), api("GET", "/v2/agents", {query: {limit: 1}}),
+    api("GET", "/v2/incidents", {query: {limit: 1}}), api("GET", "/v2/approvals", {query: {limit: 1, status: "pending"}}),
+    api("GET", "/v2/audit/integrity"),
+  ]);
+  const kpis = [];
+  const kpi = (label, value, cls) => kpis.push(el("div", {class: "kpi"}, el("div", {class: "n " + (cls || "")}, value), el("div", {class: "l"}, label)));
+  kpi("System status", health.status === 200 ? (health.data.status || "—") : "unreachable", health.status === 200 && health.data.status === "ok" ? "ok" : "warn");
+  kpi("Agents", agents.status === 200 && agents.data.page ? agents.data.page.total : "n/a");
+  kpi("Incidents", incidents.status === 200 && incidents.data.page ? incidents.data.page.total : "n/a");
+  kpi("Pending approvals", approvals.status === 200 && approvals.data.page ? approvals.data.page.total : "n/a");
+  kpi("Audit integrity", integrity.status === 200 ? (integrity.data.available === false ? "n/a" : (integrity.data.ok ? "OK" : "FAILED")) : "n/a",
+      integrity.status === 200 && integrity.data.ok ? "ok" : "warn");
+  const planes = (health.status === 200 && health.data.planes) || {};
+  const planeRows = Object.entries(planes).map(([k, v]) => ({plane: k, state: v ? "configured" : "not configured"}));
+  view.replaceChildren(
+    el("div", {class: "grid"}, kpis),
+    el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Security planes"),
+      table(planeRows, [{key: "plane", label: "Plane"}, {key: "state", label: "State", chip: true}])),
+    el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Dependencies"),
+      health.status === 200 ? table(health.data.dependencies || [], [{key: "name", label: "Dependency"}, {key: "up", label: "Up", get: r => r.up ? "up" : "DOWN", chip: true, chipClass: v => v === "up" ? "sev-low" : "sev-high"}, {key: "detail", label: "Detail"}]) : el("div", {class: "state"}, "Health endpoint unavailable.")),
+  );
+};
+
+VIEWS.agents = async (offset = 0) => {
+  setTitle("Agents", "Agent identities, status and ownership (tenant-scoped).");
+  loading();
+  const res = await api("GET", "/v2/agents", {query: {limit: S.page.limit, offset}});
+  handleEnvelope(res, (d) => {
+    const rows = d.items || [];
+    view.replaceChildren(
+      el("div", {class: "card"},
+        table(rows, [
+          {key: "agent_id", label: "Agent ID", mono: true},
+          {key: "agent_name", label: "Name"},
+          {key: "agent_type", label: "Type"},
+          {key: "status", label: "Status", chip: true},
+          {key: "owner", label: "Owner"},
+        ]),
+        pager(d.page, (o) => VIEWS.agents(o))),
+    );
+  });
+};
+
+VIEWS.health = async () => {
+  setTitle("Health & Activity", "Runtime activity and per-agent plane health.");
+  loading();
+  const res = await api("GET", "/v2/health");
+  handleEnvelope(res, (d) => {
+    const paths = d.instrumented_paths || [];
+    view.replaceChildren(
+      el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Instrumented execution paths"),
+        el("p", {class: "sub"}, "Only these paths emit metrics — monitoring is not claimed for anything else."),
+        el("div", {class: "row"}, paths.map(p => el("span", {class: "chip"}, p)))),
+      el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Dependencies"),
+        table(d.dependencies || [], [{key: "name", label: "Dependency"}, {key: "up", label: "Up", get: r => r.up ? "up" : "DOWN", chip: true, chipClass: v => v === "up" ? "sev-low" : "sev-high"}, {key: "latency_ms", label: "Latency (ms)"}])),
+    );
+  });
+};
+
+VIEWS.policies = async (offset = 0) => {
+  setTitle("Policies", "Policy definitions and versions (read-only here; changes go through the assurance lifecycle).");
+  loading();
+  const res = await api("GET", "/v2/policies", {query: {limit: S.page.limit, offset}});
+  handleEnvelope(res, (d) => {
+    view.replaceChildren(el("div", {class: "card"},
+      table(d.items || [], [
+        {key: "policy_id", label: "Policy ID", mono: true},
+        {key: "name", label: "Name"},
+        {key: "status", label: "Status", chip: true},
+        {key: "active_version", label: "Active version"},
+      ]),
+      pager(d.page, (o) => VIEWS.policies(o))));
+  });
+};
+
+VIEWS.permissions = async () => {
+  setTitle("Permissions", "The role/permission matrix enforced server-side.");
+  loading();
+  const res = await api("GET", "/v2/permissions");
+  handleEnvelope(res, (d) => {
+    const rows = Object.entries(d.matrix || {}).map(([role, perms]) => ({role, count: perms.length, perms: perms.join(", ")}));
+    view.replaceChildren(el("div", {class: "card"},
+      el("p", {class: "sub"}, "Frontend visibility is never an authorization mechanism — every route re-checks these permissions on the server."),
+      table(rows, [{key: "role", label: "Role"}, {key: "count", label: "# perms"}, {key: "perms", label: "Permissions", mono: true}])));
+  });
+};
+
+VIEWS.egress = async (offset = 0) => {
+  setTitle("Egress & DLP", "Outbound network controls and data-loss-prevention findings.");
+  loading();
+  const [pol, find] = await Promise.all([
+    api("GET", "/v2/egress/policies", {query: {limit: S.page.limit, offset}}),
+    api("GET", "/v2/egress/findings", {query: {limit: S.page.limit, offset}}),
+  ]);
+  const parts = [];
+  if (pol.status === 200 && pol.data.available === false) parts.push(el("div", {class: "card"}, el("h2", {style: "font-size:15px"}, "Egress policies"), el("div", {class: "state unavailable"}, pol.data.reason || "Not configured.")));
+  else if (pol.status === 200) parts.push(el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Egress policies"),
+    table(pol.data.items || [], [{key: "policy_id", label: "Policy ID", mono: true}, {key: "name", label: "Name"}, {key: "action", label: "Action", chip: true}, {key: "enabled", label: "Enabled"}])));
+  else parts.push(el("div", {class: "card"}, el("div", {class: "state error"}, "Egress policies: HTTP " + pol.status)));
+  if (find.status === 200 && find.data.available === false) parts.push(el("div", {class: "card"}, el("h2", {style: "font-size:15px"}, "DLP findings"), el("div", {class: "state unavailable"}, find.data.reason || "Not configured.")));
+  else if (find.status === 200) parts.push(el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "DLP findings"),
+    table(find.data.items || [], [{key: "ts", label: "Time"}, {key: "action", label: "Action", chip: true}, {key: "host", label: "Host"}, {key: "reason", label: "Reason"}])));
+  else parts.push(el("div", {class: "card"}, el("div", {class: "state error"}, "DLP findings: HTTP " + find.status)));
+  view.replaceChildren(...parts);
+};
+
+VIEWS.anomalies = async (offset = 0) => {
+  setTitle("Anomalies", "Behavioural drift findings and risk assessments.");
+  loading();
+  const res = await api("GET", "/v2/anomalies", {query: {limit: S.page.limit, offset}});
+  handleEnvelope(res, (d) => {
+    view.replaceChildren(el("div", {class: "card"},
+      table(d.items || [], [
+        {key: "finding_id", label: "Finding", mono: true},
+        {key: "agent_id", label: "Agent", mono: true},
+        {key: "drift_class", label: "Class", chip: true},
+        {key: "severity", label: "Severity", chip: true, chipClass: v => "sev-" + String(v || "").toLowerCase()},
+      ]),
+      pager(d.page, (o) => VIEWS.anomalies(o))));
+  });
+};
+
+VIEWS.incidents = async (offset = 0) => {
+  setTitle("Alerts & Incidents", "Security alerts and incident records.");
+  loading();
+  const [alerts, inc] = await Promise.all([
+    api("GET", "/v2/alerts", {query: {limit: S.page.limit, offset}}),
+    api("GET", "/v2/incidents", {query: {limit: S.page.limit, offset}}),
+  ]);
+  const parts = [];
+  parts.push(el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Alerts"),
+    alerts.status === 200 && alerts.data.available === false ? el("div", {class: "state unavailable"}, alerts.data.reason) :
+    alerts.status === 200 ? table(alerts.data.items || [], [{key: "alert_id", label: "Alert", mono: true}, {key: "severity", label: "Severity", chip: true, chipClass: v => "sev-" + String(v || "").toLowerCase()}, {key: "state", label: "State", chip: true}]) :
+    el("div", {class: "state error"}, "HTTP " + alerts.status)));
+  parts.push(el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Incidents"),
+    inc.status === 200 && inc.data.available === false ? el("div", {class: "state unavailable"}, inc.data.reason) :
+    inc.status === 200 ? table(inc.data.items || [], [{key: "incident_id", label: "Incident", mono: true}, {key: "title", label: "Title"}, {key: "severity", label: "Severity", chip: true, chipClass: v => "sev-" + String(v || "").toLowerCase()}, {key: "status", label: "Status", chip: true}]) :
+    el("div", {class: "state error"}, "HTTP " + inc.status)));
+  view.replaceChildren(...parts);
+};
+
+VIEWS.approvals = async (offset = 0) => {
+  setTitle("Approvals", "Human approval requests. Deciding requires response:approve (separation of duties).");
+  loading();
+  const res = await api("GET", "/v2/approvals", {query: {limit: S.page.limit, offset}});
+  handleEnvelope(res, (d) => {
+    const canDecide = has("response:approve");
+    const rows = d.items || [];
+    const t = table(rows, [
+      {key: "approval_id", label: "Approval", mono: true},
+      {key: "agent_id", label: "Agent", mono: true},
+      {key: "action", label: "Action"},
+      {key: "status", label: "Status", chip: true},
+    ]);
+    const actions = el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Decide"),
+      el("div", {class: "row"},
+        el("label", {class: "f"}, "Approval ID", el("input", {id: "apId", placeholder: "apr_…"})),
+        el("button", {class: "btn primary", disabled: canDecide ? null : "", onclick: () => decideApproval(true)}, "Approve"),
+        el("button", {class: "btn danger", disabled: canDecide ? null : "", onclick: () => decideApproval(false)}, "Deny")),
+      canDecide ? null : el("p", {class: "sub"}, "Your role lacks response:approve — the buttons are disabled and the server would refuse anyway."));
+    view.replaceChildren(el("div", {class: "card"}, t, pager(d.page, (o) => VIEWS.approvals(o))), actions);
+  });
+};
+
+async function decideApproval(approved) {
+  const id = (document.getElementById("apId") || {}).value;
+  if (!id) { banner("Enter an approval ID first."); return; }
+  const ok = await confirmDialog(`${approved ? "Approve" : "Deny"} approval ${id}? This is a high-impact, audited action.`);
+  if (!ok) return;
+  const res = await api("POST", `/v2/approvals/${encodeURIComponent(id)}/decide`, {body: {approved, reason: "console"}, csrf: true});
+  if (res.status === 200) { banner("Approval " + id + " decided.", "ok"); VIEWS.approvals(); }
+  else if (res.status === 403) banner("Refused: your role cannot decide approvals.", "warn");
+  else banner("Failed (" + res.status + "): " + ((res.data.error || {}).message || ""), "warn");
+}
+
+VIEWS.audit = async (offset = 0) => {
+  setTitle("Audit & Integrity", "Administrative audit events and tamper-evident chain verification.");
+  loading();
+  const [audit, integrity] = await Promise.all([
+    api("GET", "/v2/audit", {query: {limit: S.page.limit, offset}}),
+    api("GET", "/v2/audit/integrity"),
+  ]);
+  const parts = [];
+  if (integrity.status === 200 && integrity.data.available === false) {
+    parts.push(el("div", {class: "card"}, el("h2", {style: "font-size:15px"}, "Integrity"), el("div", {class: "state unavailable"}, integrity.data.reason)));
+  } else if (integrity.status === 200) {
+    const ok = integrity.data.ok;
+    parts.push(el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Integrity"),
+      el("div", {class: "row"}, el("span", {class: "chip " + (ok ? "sev-low" : "sev-high")}, ok ? "chain OK" : "chain FAILED"),
+        el("span", {class: "sub"}, "Tamper-evident, not tamper-proof — tail truncation needs an externally anchored checkpoint.")),
+      el("pre", {}, JSON.stringify(integrity.data, null, 2))));
+  } else parts.push(el("div", {class: "card"}, el("div", {class: "state error"}, "Integrity: HTTP " + integrity.status)));
+  if (audit.status === 200) parts.push(el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Audit events"),
+    table(audit.data.items || [], [{key: "ts", label: "Time"}, {key: "event", label: "Event"}, {key: "actor_user_id", label: "Actor", mono: true}, {key: "outcome", label: "Outcome", chip: true}]),
+    pager(audit.data.page, (o) => VIEWS.audit(o))));
+  else parts.push(el("div", {class: "card"}, el("div", {class: "state error"}, "Audit: HTTP " + audit.status)));
+  view.replaceChildren(...parts);
+};
+
+VIEWS.siem = async (offset = 0) => {
+  setTitle("SIEM", "SIEM destinations and delivery status.");
+  loading();
+  const [dest, deliv] = await Promise.all([
+    api("GET", "/v2/siem/destinations", {query: {limit: S.page.limit, offset}}),
+    api("GET", "/v2/siem/deliveries", {query: {limit: S.page.limit, offset}}),
+  ]);
+  const parts = [];
+  parts.push(el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Destinations"),
+    dest.status === 200 && dest.data.available === false ? el("div", {class: "state unavailable"}, dest.data.reason) :
+    dest.status === 200 ? table(dest.data.items || [], [{key: "destination_id", label: "ID", mono: true}, {key: "name", label: "Name"}, {key: "transport", label: "Transport", chip: true}, {key: "enabled", label: "Enabled"}]) :
+    el("div", {class: "state error"}, "HTTP " + dest.status)));
+  parts.push(el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Deliveries"),
+    deliv.status === 200 && deliv.data.available === false ? el("div", {class: "state unavailable"}, deliv.data.reason) :
+    deliv.status === 200 ? table(deliv.data.items || [], [{key: "delivery_id", label: "Delivery", mono: true}, {key: "destination_id", label: "Destination", mono: true}, {key: "status", label: "Status", chip: true}, {key: "attempts", label: "Attempts"}]) :
+    el("div", {class: "state error"}, "HTTP " + deliv.status)));
+  view.replaceChildren(...parts);
+};
+
+VIEWS.metrics = async () => {
+  setTitle("Metrics", "Operational metrics for the instrumented paths.");
+  loading();
+  const res = await api("GET", "/v2/metrics");
+  handleEnvelope(res, (d) => {
+    const counters = (d.metrics && d.metrics.counters) || {};
+    const rows = Object.entries(counters).map(([k, v]) => ({metric: k, value: v}));
+    view.replaceChildren(
+      el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Counters"),
+        table(rows, [{key: "metric", label: "Metric", mono: true}, {key: "value", label: "Value"}])),
+      el("div", {class: "card"}, el("h2", {style: "font-size:15px;margin:0 0 8px"}, "Instrumented paths"),
+        el("div", {class: "row"}, (d.instrumented_paths || []).map(p => el("span", {class: "chip"}, p)))),
+    );
+  });
+};
+
+/* ------------------------------------------------------------------ chrome */
+function banner(msg, kind) {
+  const b = document.getElementById("banner");
+  b.textContent = msg;
+  b.hidden = false;
+  b.style.borderColor = kind === "ok" ? "#166534" : "#7c5a12";
+  b.style.background = kind === "ok" ? "#0f2a1a" : "#2a2210";
+  b.style.color = kind === "ok" ? "#bbf7d0" : "#fde68a";
+  clearTimeout(banner._t);
+  banner._t = setTimeout(() => { b.hidden = true; }, 6000);
+}
+
+function confirmDialog(msg) {
+  return new Promise((resolve) => {
+    const dlg = document.getElementById("confirmDlg");
+    document.getElementById("confirmMsg").textContent = msg;
+    const yes = document.getElementById("confirmYes"), no = document.getElementById("confirmNo");
+    const done = (v) => { dlg.close(); yes.onclick = no.onclick = null; resolve(v); };
+    yes.onclick = () => done(true); no.onclick = () => done(false);
+    dlg.showModal();
+  });
+}
+
+function showLogin() {
+  setTitle("Sign in", "Authenticate against the AgentGuard management API.");
+  const form = el("form", {class: "card", onsubmit: async (e) => {
+    e.preventDefault();
+    const email = document.getElementById("liEmail").value, pw = document.getElementById("liPw").value;
+    loading("Signing in…");
+    const res = await login(email, pw);
+    if (res.status === 200) { banner("Signed in.", "ok"); go(S.view); }
+    else if (res.status === 401) { errorState("Invalid credentials."); }
+    else { errorState("Sign-in failed (" + res.status + ")", res.data); }
+  }},
+    el("div", {class: "row"},
+      el("label", {class: "f"}, "Email", el("input", {id: "liEmail", type: "email", required: "", autocomplete: "username"})),
+      el("label", {class: "f"}, "Password", el("input", {id: "liPw", type: "password", required: "", autocomplete: "current-password"})),
+      el("button", {class: "btn primary", type: "submit"}, "Sign in")),
+    el("p", {class: "sub"}, "The console talks to " + S.base + ". Credentials are sent only to the API; the session token is kept in sessionStorage and never logged."));
+  view.replaceChildren(form);
+}
+
+function go(name) {
+  S.view = name;
+  document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-current", t.dataset.view === name ? "page" : "false"));
+  if (!S.session) { showLogin(); return; }
+  const fn = VIEWS[name] || VIEWS.overview;
+  Promise.resolve(fn()).catch(e => errorState(String(e)));
+}
+
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => go(t.dataset.view)));
+document.getElementById("btnRefresh").addEventListener("click", () => go(S.view));
+document.getElementById("btnLogout").addEventListener("click", async () => {
+  try { await api("POST", "/v1/auth/logout", {body: {}, csrf: true}); } catch (_) {}
+  S.token = ""; S.csrf = ""; S.session = null;
+  sessionStorage.removeItem("ag_token"); sessionStorage.removeItem("ag_csrf");
+  paintWho(); applyRbac(); showLogin();
+});
+
+/* ------------------------------------------------------------------ boot */
+(async function boot() {
+  if (S.token) {
+    const ok = await loadSession();
+    if (ok) { go("overview"); return; }
+  }
+  showLogin();
+})();
+</script>
+</body>
+</html>

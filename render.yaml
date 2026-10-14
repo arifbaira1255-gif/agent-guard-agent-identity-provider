@@ -1,0 +1,36 @@
+# Render Blueprint: backend (Docker) + frontend (Docker) for the demo prototype.
+# After the first deploy, set NEXT_PUBLIC_API_URL on the frontend to the backend's onrender.com URL
+# and CORS_ORIGINS on the backend to the frontend's onrender.com URL, then redeploy the frontend
+# (NEXT_PUBLIC_* values are baked in at build time).
+services:
+  - type: web
+    name: aql-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./apps/aql/backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: TOOL_GATE_MODE
+        value: local
+      - key: PYTHON_EXEC_MODE
+        value: disabled
+      - key: AUTH_ENABLED
+        value: "false"        # demo only: no API key needed. Turn on before sharing publicly.
+      - key: CORS_ORIGINS
+        value: "*"            # tighten to the frontend URL after first deploy
+      - key: ADMIN_TOKEN
+        generateValue: true
+  - type: web
+    name: aql-frontend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./apps/aql/frontend/Dockerfile
+    dockerContext: ./apps/aql/frontend
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://aql-backend.onrender.com
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://aql-backend.onrender.com

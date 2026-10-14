@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install (editable)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run full test suite
+        run: python -m pytest
+
+      - name: Run master test runner (CLI, package manager, LSP round-trips)
+        run: python tests/run_all_tests.py
+
+      - name: Smoke-test the CLI
+        run: |
+          happy --version
+          happy check examples/verified_demo.hpy
+          happy build examples/backend_demo.hpy
+          happy fmt --check examples/backend_demo.hpy || true
+          happy lint examples/verified_demo.hpy || true

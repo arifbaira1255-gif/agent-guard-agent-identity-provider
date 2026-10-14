@@ -1,0 +1,13 @@
+# AgentGuard namespace + baseline pod security.
+# The namespace enforces the "restricted" Pod Security Standard, so any workload that tries to run
+# as root / privileged / with added capabilities is rejected by the API server, not just by review.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentguard
+  labels:
+    app.kubernetes.io/name: agentguard
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

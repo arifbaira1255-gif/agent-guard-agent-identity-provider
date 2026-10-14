@@ -1,0 +1,14 @@
+# Hardened image for the docker/podman isolation backend.
+#   docker build -f deploy/Dockerfile.sandbox -t happy-sandbox:1 .
+#   HAPPY_ISOLATION=required HAPPY_ISOLATION_IMAGE=happy-sandbox:1 ...
+# Pin the base by digest in production:  python:3.12-slim@sha256:<digest>
+FROM python:3.12-slim
+
+# Nothing but the interpreter: no pip, no shell tooling the workload could use.
+RUN pip uninstall -y pip setuptools wheel 2>/dev/null || true \
+ && rm -rf /root/.cache /var/lib/apt/lists/* \
+ && find / -xdev -perm /6000 -type f -exec chmod a-s {} + 2>/dev/null || true
+
+USER 65534:65534
+WORKDIR /work
+ENTRYPOINT ["python"]

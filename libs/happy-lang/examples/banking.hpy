@@ -1,0 +1,96 @@
+// ============================================================
+//  Happy language (.hpy) — full frontend demo script
+//  Exercises: module, imports, types, enums, functions,
+//  contracts, permissions, capabilities, agents, ai, effects,
+//  async/await, secrets, rules.
+// ============================================================
+
+module demo.banking
+
+import std.io
+import { Logger, Config } from "std.core"
+
+// ---- Struct with a secret field and an invariant -------------
+type Account {
+    id: Int
+    owner: String
+    balance: Float
+    secret pin: Byte
+    active: Bool = true
+
+    invariant balance >= 0.0, "balance must never be negative"
+}
+
+// ---- Enum with payloads --------------------------------------
+enum TransactionKind {
+    Deposit(Float)
+    Withdraw(Float)
+    Transfer(String, Float)
+}
+
+// ---- Permission ----------------------------------------------
+permission AccountAccess {
+    can read
+    can deposit
+    cannot withdraw_without_pin
+}
+
+// ---- Capability ----------------------------------------------
+capability AdminOverride {
+    grants force_close
+    grants audit
+}
+
+// ---- Rule ----------------------------------------------------
+rule no_overdraft(amount: Float): amount <= 0.0 || balance >= amount
+
+// ---- Function with contracts, effects and async --------------
+function deposit(account: Account, amount: Float) -> Float
+    requires amount > 0.0, "deposit must be positive"
+    ensures result == account.balance, "returned balance matches the account"
+    effects [io]
+{
+    let new_balance = account.balance + amount
+    account.balance = new_balance
+    return new_balance
+}
+
+async function fetch_rate(currency: String) -> Float
+    requires currency != ""
+    effects [net]
+{
+    let rate = await http_get("https://rates.example/" + currency)
+    return rate
+}
+
+// ---- Agent with goal, permissions, capabilities, effects -----
+agent Teller {
+    goal "process customer transactions safely"
+    permission [AccountAccess]
+    capability [AdminOverride]
+    effects [io, net]
+
+    requires balance >= 0.0
+
+    function greet(name: String) -> String {
+        return "Hello, " + name
+    }
+}
+
+// ---- AI block ------------------------------------------------
+ai FraudDetector {
+    prompt "Detect suspicious transactions from the given history"
+    goal "flag anomalies with high precision"
+
+    ensures result != null
+
+    let threshold = 0.85
+    let flagged = ai { "score this transaction" }
+}
+
+// ---- App entry point -----------------------------------------
+app Banking {
+    let account = Account { id: 1, owner: "Ada", balance: 100.0, pin: 7 }
+    let total = deposit(account, 50.0)
+    print(total)
+}

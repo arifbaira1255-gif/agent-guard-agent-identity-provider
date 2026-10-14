@@ -1,0 +1,79 @@
+# Default-deny + explicit allow. Every pod in the namespace is isolated unless a policy permits the
+# flow. This is the network half of least privilege: a compromised pod cannot reach anything it was
+# not explicitly granted.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: agentguard
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+# Identity service: accept HTTPS only from the ingress controller; egress only to PG, Redis, DNS,
+# the SPIRE agent socket (unix, not network) and the KMS endpoint (443).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agentguard-identity
+  namespace: agentguard
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: identity}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+      ports:
+        - {protocol: TCP, port: 8443}
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: postgres}}
+      ports:
+        - {protocol: TCP, port: 5432}
+    - to:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: redis}}
+      ports:
+        - {protocol: TCP, port: 6380}
+    - to:                                  # DNS
+        - namespaceSelector: {}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:                                  # KMS / STS over TLS
+        - ipBlock: {cidr: 0.0.0.0/0, except: ["169.254.169.254/32"]}
+      ports:
+        - {protocol: TCP, port: 443}
+---
+# PostgreSQL: accept only from the identity service and the migration job.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agentguard-postgres
+  namespace: agentguard
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: postgres}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: identity}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: migrate}}
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+# Redis: accept only from the identity service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agentguard-redis
+  namespace: agentguard
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: redis}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: identity}}
+      ports:
+        - {protocol: TCP, port: 6380}

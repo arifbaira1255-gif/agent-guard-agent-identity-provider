@@ -1,0 +1,48 @@
+# Database migration Job. Runs the SAME image as the service with the `migrate` subcommand, as a
+# separate step -- production never auto-migrates at startup (PgConfig refuses auto_migrate in
+# production). Run this BEFORE rolling out a new Deployment:
+#
+#   kubectl -n agentguard delete job agentguard-migrate --ignore-not-found
+#   kubectl -n agentguard apply -f deploy/kubernetes/40-migrate-job.yaml
+#   kubectl -n agentguard wait --for=condition=complete job/agentguard-migrate --timeout=300s
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agentguard-migrate
+  namespace: agentguard
+  labels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: migrate}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: agentguard, app.kubernetes.io/component: migrate}
+    spec:
+      serviceAccountName: agentguard-migrate
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: migrate
+          image: agentguard/agent-identity:0.1.0
+          args: ["migrate"]
+          envFrom:
+            - configMapRef: {name: agentguard-identity-config}
+            - secretRef: {name: agentguard-identity-secrets}
+          resources:
+            requests: {cpu: "100m", memory: "128Mi"}
+            limits: {cpu: "500m", memory: "512Mi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: pg-ca, mountPath: /etc/pg, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: pg-ca
+          secret: {secretName: agentguard-pg-ca}
+        - name: tmp
+          emptyDir: {}
